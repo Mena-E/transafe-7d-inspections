@@ -848,12 +848,15 @@ const handleLogout = () => {
                         return (
                           <div
                             key={item.id}
-                            className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 text-xs hover:bg-slate-900/70"
+                            className="flex flex-col gap-3 rounded-lg border-b border-white/5 px-2 py-3 last:border-0 md:flex-row md:items-center md:justify-between md:gap-4 md:border-none md:py-2 hover:bg-slate-900/40"
                           >
-                            <p className="flex-1 text-slate-100">
+                            {/* Question Text: Larger and bold on mobile for readability */}
+                            <p className="text-sm font-medium text-slate-100 md:flex-1 md:text-xs md:font-normal">
                               {item.label}
                             </p>
-                            <div className="flex gap-1">
+
+                            {/* Buttons: Full width row on mobile, compact on desktop */}
+                            <div className="flex w-full gap-2 md:w-auto md:gap-1">
                               <AnswerButton
                                 value="pass"
                                 label="P"
