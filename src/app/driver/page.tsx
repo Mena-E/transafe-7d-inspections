@@ -241,7 +241,7 @@ function AnswerButton({
   onClick: () => void;
 }) {
   const baseClasses =
-    "flex-1 min-w-[80px] rounded-xl md:rounded-2xl border px-3 py-2 md:px-4 md:py-3 text-xs md:text-sm font-semibold text-center transition active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/70";
+    "flex-1 min-w-[80px] rounded-xl md:rounded-2xl border px-3 py-2 md:px-4 md:py-3 text-sm md:text-base font-semibold text-center transition active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/70";
 
   let colorClasses = "";
 
@@ -269,11 +269,11 @@ function AnswerButton({
     >
       <div className="flex flex-col items-center justify-center gap-0.5">
         {/* Short label (P / F / N) */}
-        <span className="text-[11px] uppercase tracking-[0.18em]">
+        <span className="text-xs uppercase tracking-[0.18em]">
           {label}
         </span>
         {/* Full word for clarity */}
-        <span className="text-xs md:text-sm">
+        <span className="text-sm md:text-base">
           {value === "pass" ? "Pass" : value === "fail" ? "Fail" : "N/A"}
         </span>
       </div>
@@ -378,108 +378,107 @@ export default function DriverPage() {
     return groups;
   }, [currentChecklist]);
 
-async function fetchHistoryForDriver(name: string) {
-  if (!name) return;
-  setLoadingHistory(true);
-  try {
-    const since = new Date();
-    since.setDate(since.getDate() - 90);
+  async function fetchHistoryForDriver(name: string) {
+    if (!name) return;
+    setLoadingHistory(true);
+    try {
+      const since = new Date();
+      since.setDate(since.getDate() - 90);
 
-    const { data, error: histErr } = await supabase
-      .from("inspections")
-      .select("*")
-      .eq("driver_name", name)
-      .gte("submitted_at", since.toISOString())
-      .order("submitted_at", { ascending: false });
+      const { data, error: histErr } = await supabase
+        .from("inspections")
+        .select("*")
+        .eq("driver_name", name)
+        .gte("submitted_at", since.toISOString())
+        .order("submitted_at", { ascending: false });
 
-    if (histErr) throw histErr;
-    setHistory((data as InspectionRecord[]) || []);
-  } catch (err: any) {
-    console.error(err);
-    // silent fail for history
-  } finally {
-    setLoadingHistory(false);
+      if (histErr) throw histErr;
+      setHistory((data as InspectionRecord[]) || []);
+    } catch (err: any) {
+      console.error(err);
+      // silent fail for history
+    } finally {
+      setLoadingHistory(false);
+    }
   }
-}
 
   useEffect(() => {
     if (!isSessionReady || !driverName.trim()) return;
     // Refresh history using canonical driver name
     fetchHistoryForDriver(currentDriver?.full_name ?? driverName.trim());
-
   }, [isSessionReady, driverName]);
 
   const handleStartSession = async () => {
-  // Normalize the name: trim and collapse multiple spaces
-  const normalizeName = (name: string) =>
-    name.trim().replace(/\s+/g, " ");
+    // Normalize the name: trim and collapse multiple spaces
+    const normalizeName = (name: string) =>
+      name.trim().replace(/\s+/g, " ");
 
-  const inputName = normalizeName(driverName);
+    const inputName = normalizeName(driverName);
 
-  if (!inputName || !selectedVehicleId) {
-    setError("Please enter your name and select a vehicle.");
-    return;
-  }
-
-  setError(null);
-  setSubmitMessage(null);
-  setLoadingDriverLookup(true);
-
-  try {
-    const { data, error: drvErr } = await supabase
-      .from("drivers")
-      .select("*")
-      // Case-insensitive match on full_name
-      .ilike("full_name", inputName)
-      .eq("is_active", true)
-      .order("created_at", { ascending: true });
-
-    if (drvErr) throw drvErr;
-
-    if (!data || data.length === 0) {
-      setError(
-        "No active driver found with that name. Please contact your admin to register you.",
-      );
-      setLoadingDriverLookup(false);
+    if (!inputName || !selectedVehicleId) {
+      setError("Please enter your name and select a vehicle.");
       return;
     }
 
-    const driver = data[0] as Driver;
-    setCurrentDriver(driver);
+    setError(null);
+    setSubmitMessage(null);
+    setLoadingDriverLookup(true);
 
-    setIsSessionReady(true);
+    try {
+      const { data, error: drvErr } = await supabase
+        .from("drivers")
+        .select("*")
+        // Case-insensitive match on full_name
+        .ilike("full_name", inputName)
+        .eq("is_active", true)
+        .order("created_at", { ascending: true });
+
+      if (drvErr) throw drvErr;
+
+      if (!data || data.length === 0) {
+        setError(
+          "No active driver found with that name. Please contact your admin to register you.",
+        );
+        setLoadingDriverLookup(false);
+        return;
+      }
+
+      const driver = data[0] as Driver;
+      setCurrentDriver(driver);
+
+      setIsSessionReady(true);
+      setSelectedInspectionType(null);
+      setShift("");
+      setOdometer("");
+      setAnswers({});
+      setNotes("");
+      setSignatureName("");
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        err?.message ??
+          "Failed to look up driver. Please check your name spelling or contact admin.",
+      );
+    } finally {
+      setLoadingDriverLookup(false);
+    }
+  };
+
+  const handleLogout = () => {
+    // Completely log the driver out and return to the first screen
+    setIsSessionReady(false);
+    setCurrentDriver(null);
+    setDriverName("");
+    setSelectedVehicleId("");
     setSelectedInspectionType(null);
     setShift("");
     setOdometer("");
     setAnswers({});
     setNotes("");
     setSignatureName("");
-  } catch (err: any) {
-    console.error(err);
-    setError(
-      err?.message ??
-        "Failed to look up driver. Please check your name spelling or contact admin.",
-    );
-  } finally {
-    setLoadingDriverLookup(false);
-  }
-};
-
-const handleLogout = () => {
-  // Completely log the driver out and return to the first screen
-  setIsSessionReady(false);
-  setCurrentDriver(null);
-  setDriverName("");
-  setSelectedVehicleId("");
-  setSelectedInspectionType(null);
-  setShift("");
-  setOdometer("");
-  setAnswers({});
-  setNotes("");
-  setSignatureName("");
-  setSubmitMessage(null);
-  setError(null);
-};
+    setSubmitMessage(null);
+    setError(null);
+  };
 
   const updateAnswer = (itemId: string, value: AnswerValue) => {
     setAnswers((prev) => ({
@@ -545,9 +544,8 @@ const handleLogout = () => {
         "Inspection submitted successfully. Thank you for completing your daily check.",
       );
 
-      // Refresh history
-     // Refresh history using the canonical driver name
-    fetchHistoryForDriver(currentDriver?.full_name ?? driverName.trim());
+      // Refresh history using the canonical driver name
+      fetchHistoryForDriver(currentDriver?.full_name ?? driverName.trim());
 
       // Reset form but keep session active
       setSelectedInspectionType(null);
@@ -569,8 +567,8 @@ const handleLogout = () => {
     return (
       <div className="space-y-4">
         <section className="card">
-          <h1 className="mb-2 text-xl font-semibold">Driver Portal</h1>
-          <p className="text-sm text-slate-200/80">
+          <h1 className="mb-2 text-2xl font-semibold">Driver Portal</h1>
+          <p className="text-base text-slate-200/80">
             Please enter your name and select your assigned vehicle to begin
             your daily inspection.
           </p>
@@ -578,36 +576,36 @@ const handleLogout = () => {
 
         {error && (
           <section className="card border border-red-500/50 bg-red-950/40">
-            <p className="text-xs font-medium text-red-200">{error}</p>
+            <p className="text-sm font-medium text-red-200">{error}</p>
           </section>
         )}
 
         <section className="card space-y-4">
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-slate-100">
+            <label className="block text-base font-medium text-slate-100">
               Your full name
             </label>
             <input
               type="text"
               value={driverName}
               onChange={(e) => setDriverName(e.target.value)}
-              className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+              className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-base text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
               placeholder="e.g. John Doe"
             />
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[12px] text-slate-400">
               Must match how your name is entered by the admin (e.g. &quot;Julio
               Duarte&quot;).
             </p>
           </div>
 
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-slate-100">
+            <label className="block text-base font-medium text-slate-100">
               Assigned vehicle
             </label>
             <select
               value={selectedVehicleId}
               onChange={(e) => setSelectedVehicleId(e.target.value)}
-              className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+              className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-base text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
             >
               <option value="">
                 {loadingVehicles ? "Loading vehicles..." : "Select a vehicle"}
@@ -618,7 +616,7 @@ const handleLogout = () => {
                 </option>
               ))}
             </select>
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[12px] text-slate-400">
               If your vehicle is missing, ask your admin to add it in the Admin
               Portal.
             </p>
@@ -627,7 +625,7 @@ const handleLogout = () => {
           <button
             type="button"
             onClick={handleStartSession}
-            className="btn-primary w-full"
+            className="btn-primary w-full text-base"
             disabled={
               !driverName.trim() ||
               !selectedVehicleId ||
@@ -647,35 +645,34 @@ const handleLogout = () => {
     <div className="space-y-4">
       <section className="card flex items-start justify-between gap-3">
         <div>
-            <h1 className="mb-1 text-xl font-semibold">Driver Portal</h1>
-            <p className="text-xs text-slate-200/80">
+          <h1 className="mb-1 text-2xl font-semibold">Driver Portal</h1>
+          <p className="text-sm text-slate-200/80">
             Signed in as{" "}
             <span className="font-semibold text-emerald-200">
-                {driverName.trim()}
+              {driverName.trim()}
             </span>
-            </p>
-            <p className="text-[11px] text-slate-300">
+          </p>
+          <p className="text-[12px] text-slate-300">
             License #: {currentDriver?.license_number ?? "N/A"}
-            </p>
-            <p className="mt-1 text-sm font-medium text-slate-100">
+          </p>
+          <p className="mt-1 text-base font-medium text-slate-100">
             Vehicle: {vehicleMainLine}
+          </p>
+          {selectedVehicle && (
+            <p className="text-[12px] text-slate-300">
+              Label: {selectedVehicle.label} • Plate:{" "}
+              {selectedVehicle.plate || "N/A"}
             </p>
-            {selectedVehicle && (
-            <p className="text-[11px] text-slate-300">
-                Label: {selectedVehicle.label} • Plate:{" "}
-                {selectedVehicle.plate || "N/A"}
-            </p>
-            )}
+          )}
         </div>
         <button
-            type="button"
-            onClick={handleLogout}
-            className="btn-ghost px-3 py-1 text-xs"
+          type="button"
+          onClick={handleLogout}
+          className="btn-ghost px-3 py-1 text-sm"
         >
-            Log out
+          Log out
         </button>
-</section>
-
+      </section>
 
       <section className="grid gap-4 sm:grid-cols-2">
         <button
@@ -693,10 +690,10 @@ const handleLogout = () => {
             selectedInspectionType === "pre" ? "ring-2 ring-emerald-500" : ""
           }`}
         >
-          <h2 className="mb-1 text-base font-semibold">
+          <h2 className="mb-1 text-lg font-semibold">
             Start <span className="text-emerald-300">Pre-trip</span> inspection
           </h2>
-          <p className="text-sm text-slate-200/80">
+          <p className="text-base text-slate-200/80">
             Complete the full pre-trip checklist before you leave your first
             pickup or the school.
           </p>
@@ -717,10 +714,10 @@ const handleLogout = () => {
             selectedInspectionType === "post" ? "ring-2 ring-emerald-500" : ""
           }`}
         >
-          <h2 className="mb-1 text-base font-semibold">
+          <h2 className="mb-1 text-lg font-semibold">
             Start <span className="text-emerald-300">Post-trip</span> inspection
           </h2>
-          <p className="text-sm text-slate-200/80">
+          <p className="text-base text-slate-200/80">
             Complete the post-trip checklist after you finish your last drop and
             secure the vehicle.
           </p>
@@ -729,13 +726,13 @@ const handleLogout = () => {
 
       {error && (
         <section className="card border border-red-500/50 bg-red-950/40">
-          <p className="text-xs font-medium text-red-200">{error}</p>
+          <p className="text-sm font-medium text-red-200">{error}</p>
         </section>
       )}
 
       {submitMessage && (
         <section className="card border-emerald-500/60 bg-emerald-900/20">
-          <p className="text-xs font-medium text-emerald-100">
+          <p className="text-sm font-medium text-emerald-100">
             {submitMessage}
           </p>
         </section>
@@ -744,7 +741,7 @@ const handleLogout = () => {
       {/* Active inspection form */}
       <section className="card space-y-4">
         {selectedInspectionType === null ? (
-          <p className="text-xs text-slate-300">
+          <p className="text-sm text-slate-300">
             Select <strong>Pre-trip</strong> or <strong>Post-trip</strong> to
             begin. The full checklist will appear here.
           </p>
@@ -752,12 +749,12 @@ const handleLogout = () => {
           <>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-base font-semibold">
+                <h2 className="text-lg font-semibold">
                   {selectedInspectionType === "pre"
                     ? "Pre-trip inspection checklist"
                     : "Post-trip inspection checklist"}
                 </h2>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[12px] text-slate-400">
                   Driver:{" "}
                   <span className="font-semibold text-slate-100">
                     {driverName.trim()}
@@ -768,7 +765,7 @@ const handleLogout = () => {
                   </span>
                 </p>
                 {selectedVehicle && (
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[12px] text-slate-400">
                     Vehicle:{" "}
                     <span className="font-semibold text-slate-100">
                       {selectedVehicle.year ?? ""}{" "}
@@ -781,7 +778,7 @@ const handleLogout = () => {
                 )}
               </div>
 
-              <div className="flex gap-2 text-[11px]">
+              <div className="flex gap-2 text-[12px]">
                 <div className="flex items-center gap-1">
                   <span className="inline-block h-3 w-3 rounded bg-emerald-600" />{" "}
                   PASS
@@ -799,21 +796,21 @@ const handleLogout = () => {
 
             {/* Odometer */}
             <div className="space-y-2">
-              <label className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">
+              <label className="block text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">
                 Odometer (required)
               </label>
               <input
                 type="text"
                 value={odometer}
                 onChange={(e) => setOdometer(e.target.value)}
-                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-base text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
                 placeholder="Current odometer reading (e.g. 123456)"
               />
             </div>
 
             {/* Shift selector */}
             <div className="space-y-2">
-              <label className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">
+              <label className="block text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">
                 Shift
               </label>
               <div className="flex gap-2">
@@ -822,7 +819,7 @@ const handleLogout = () => {
                     key={s}
                     type="button"
                     onClick={() => setShift(s)}
-                    className={`flex-1 rounded-xl px-3 py-2 text-xs font-semibold transition active:scale-[0.96] ${
+                    className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition active:scale-[0.96] ${
                       shift === s
                         ? "bg-emerald-600 text-white"
                         : "bg-slate-900 text-slate-100 ring-1 ring-white/10 hover:bg-slate-800"
@@ -839,7 +836,7 @@ const handleLogout = () => {
               {Object.entries(groupedChecklist).map(
                 ([category, itemsInCategory]) => (
                   <div key={category} className="space-y-2">
-                    <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">
+                    <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">
                       {category}
                     </h3>
                     <div className="space-y-2 rounded-xl bg-slate-950/40 p-2">
@@ -851,7 +848,7 @@ const handleLogout = () => {
                             className="flex flex-col gap-3 rounded-lg border-b border-white/5 px-2 py-3 last:border-0 md:flex-row md:items-center md:justify-between md:gap-4 md:border-none md:py-2 hover:bg-slate-900/40"
                           >
                             {/* Question Text: Larger and bold on mobile for readability */}
-                            <p className="text-sm font-medium text-slate-100 md:flex-1 md:text-xs md:font-normal">
+                            <p className="text-base font-medium text-slate-100 md:flex-1 md:text-sm md:font-normal">
                               {item.label}
                             </p>
 
@@ -887,30 +884,30 @@ const handleLogout = () => {
 
             {/* Notes */}
             <div className="space-y-2">
-              <label className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">
+              <label className="block text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">
                 Notes / defects (if anything failed)
               </label>
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                className="min-h-[70px] w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+                className="min-h-[70px] w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-base text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
                 placeholder="Describe any failed items, defects, or other notes."
               />
             </div>
 
             {/* Signature */}
             <div className="space-y-2">
-              <label className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">
+              <label className="block text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">
                 Signature (type your full name)
               </label>
               <input
                 type="text"
                 value={signatureName}
                 onChange={(e) => setSignatureName(e.target.value)}
-                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-base text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
                 placeholder="Type your name to certify this inspection"
               />
-              <p className="text-[11px] text-slate-400">
+              <p className="text-[12px] text-slate-400">
                 By typing your name you certify that you have completed this{" "}
                 {selectedInspectionType === "pre"
                   ? "pre-trip"
@@ -922,7 +919,7 @@ const handleLogout = () => {
             <button
               type="button"
               onClick={handleSubmitInspection}
-              className={`btn-primary w-full text-sm ${
+              className={`btn-primary w-full text-base ${
                 !canSubmit ? "opacity-50 cursor-not-allowed" : ""
               }`}
               disabled={!canSubmit}
@@ -931,23 +928,23 @@ const handleLogout = () => {
             </button>
 
             {!allAnswered && (
-              <p className="mt-1 text-[11px] text-amber-300">
+              <p className="mt-1 text-sm text-amber-300">
                 Please select Pass, Fail, or N/A for every checklist item before
                 submitting.
               </p>
             )}
             {!odometer.trim() && (
-              <p className="mt-1 text-[11px] text-amber-300">
+              <p className="mt-1 text-sm text-amber-300">
                 Please enter the current odometer reading.
               </p>
             )}
             {!shift && (
-              <p className="mt-1 text-[11px] text-amber-300">
+              <p className="mt-1 text-sm text-amber-300">
                 Please choose your shift (AM, Midday, or PM).
               </p>
             )}
             {!signatureName.trim() && (
-              <p className="mt-1 text-[11px] text-amber-300">
+              <p className="mt-1 text-sm text-amber-300">
                 Type your name in the signature field to enable submission.
               </p>
             )}
@@ -958,10 +955,10 @@ const handleLogout = () => {
       {/* 90-day history */}
       <section className="card space-y-3">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">
+          <h2 className="text-base font-semibold uppercase tracking-[0.16em] text-slate-300">
             Last 90 days – your inspections
           </h2>
-          <span className="text-[11px] text-slate-400">
+          <span className="text-[12px] text-slate-400">
             {loadingHistory
               ? "Loading…"
               : history.length === 0
@@ -973,12 +970,12 @@ const handleLogout = () => {
         </div>
 
         {history.length === 0 && !loadingHistory ? (
-          <p className="text-[11px] text-slate-400">
+          <p className="text-sm text-slate-400">
             Once you submit inspections, they will appear here for up to 90 days
             for audit purposes.
           </p>
         ) : (
-          <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl bg-slate-950/40 p-2 text-xs">
+          <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl bg-slate-950/40 p-2 text-sm">
             {history.map((rec) => (
               <div
                 key={rec.id}
@@ -989,7 +986,7 @@ const handleLogout = () => {
                     {rec.inspection_type === "pre" ? "Pre-trip" : "Post-trip"} •{" "}
                     {formatDateTime(rec.submitted_at || rec.inspection_date)}
                   </p>
-                  <p className="text-[10px] text-slate-400">
+                  <p className="text-[12px] text-slate-400">
                     Shift: {rec.shift || "N/A"} • Status:{" "}
                     {rec.overall_status
                       ? rec.overall_status.toUpperCase()
@@ -999,7 +996,7 @@ const handleLogout = () => {
                 <Link
                   href={`/inspection/${rec.id}`}
                   target="_blank"
-                  className="btn-ghost text-[11px]"
+                  className="btn-ghost text-sm"
                 >
                   Open form
                 </Link>
@@ -1011,4 +1008,3 @@ const handleLogout = () => {
     </div>
   );
 }
-
