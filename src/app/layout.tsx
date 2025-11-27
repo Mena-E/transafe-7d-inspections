@@ -1,7 +1,6 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import Link from "next/link";
 import Image from "next/image";
 import type { ReactNode } from "react";
 
@@ -64,9 +63,9 @@ export default function RootLayout({
         <EnvBanner />
 
         <div className="min-h-screen">
-          {/* App header with logo + navigation */}
+          {/* App header with logo */}
           <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur">
-            <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
+            <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3">
               <div className="flex items-center gap-3">
                 {/* LOGO: plain image, no extra container styling */}
                 <Image
@@ -86,21 +85,7 @@ export default function RootLayout({
                   </p>
                 </div>
               </div>
-
-              <nav className="flex items-center gap-2 text-xs font-semibold">
-                <Link
-                  href="/driver"
-                  className="rounded-2xl px-3 py-1.5 text-slate-100 ring-1 ring-white/10 hover:bg-slate-900"
-                >
-                  Driver
-                </Link>
-                <Link
-                  href="/admin"
-                  className="rounded-2xl px-3 py-1.5 bg-emerald-600 text-slate-950 hover:bg-emerald-500"
-                >
-                  Admin
-                </Link>
-              </nav>
+              {/* Navigation removed: driver/admin buttons are now only on home page */}
             </div>
           </header>
 

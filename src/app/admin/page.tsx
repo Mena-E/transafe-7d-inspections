@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 type Driver = {
@@ -50,6 +51,8 @@ function formatDateTime(iso: string | null) {
 type AdminTab = "drivers" | "vehicles" | "inspections";
 
 export default function AdminPage() {
+  const router = useRouter();
+
   const [accessCodeInput, setAccessCodeInput] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
@@ -91,6 +94,15 @@ export default function AdminPage() {
 
   // Inspections search
   const [inspectionSearch, setInspectionSearch] = useState("");
+
+  // Restore admin auth from localStorage so Back from inspection keeps portal unlocked
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem("transafe_admin_unlocked");
+    if (stored === "true") {
+      setIsAuthenticated(true);
+    }
+  }, []);
 
   // Load drivers, vehicles, inspections once authenticated
   useEffect(() => {
@@ -163,11 +175,22 @@ export default function AdminPage() {
     if (accessCodeInput.trim() === ADMIN_CODE.trim() && ADMIN_CODE) {
       setIsAuthenticated(true);
       setError(null);
+
+      // Persist admin unlock in localStorage
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("transafe_admin_unlocked", "true");
+      }
     } else {
       setError("Invalid admin access code.");
     }
   };
-    const handleLogout = () => {
+
+  const handleLogout = () => {
+    // Clear admin session from localStorage
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("transafe_admin_unlocked");
+    }
+
     // Clear admin session and sensitive state
     setIsAuthenticated(false);
     setAccessCodeInput("");
@@ -177,6 +200,9 @@ export default function AdminPage() {
     setEditingDriverId(null);
     setEditingVehicleId(null);
     setError(null);
+
+    // Return to landing page
+    router.push("/");
   };
 
   // ---------- DRIVER HANDLERS ----------
@@ -290,7 +316,7 @@ export default function AdminPage() {
     if (!confirmed) return;
 
     setLoading(true);
-    setError(null);
+       setError(null);
     try {
       const { error: deleteErr } = await supabase
         .from("drivers")
@@ -613,32 +639,31 @@ export default function AdminPage() {
       {/* Header */}
       <section className="card">
         <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
+          <div>
             <h1 className="mb-1 text-xl font-semibold">
-                Transafe Admin Dashboard
+              Transafe Admin Dashboard
             </h1>
             <p className="text-xs text-slate-200/80">
-                Manage <span className="font-semibold">Drivers</span>,{" "}
-                <span className="font-semibold">Vehicles</span>, and{" "}
-                <span className="font-semibold">Inspection records</span> for up
-                to 90 days.
+              Manage <span className="font-semibold">Drivers</span>,{" "}
+              <span className="font-semibold">Vehicles</span>, and{" "}
+              <span className="font-semibold">Inspection records</span> for up
+              to 90 days.
             </p>
-            </div>
-            <div className="flex items-center gap-2">
+          </div>
+          <div className="flex items-center gap-2">
             <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-200">
-                Admin unlocked
+              Admin unlocked
             </span>
             <button
-                type="button"
-                onClick={handleLogout}
-                className="btn-ghost px-3 py-1 text-[11px]"
+              type="button"
+              onClick={handleLogout}
+              className="btn-ghost px-3 py-1 text-[11px]"
             >
-                Log out
+              Log out
             </button>
-            </div>
+          </div>
         </div>
-        </section>
-
+      </section>
 
       {error && (
         <section className="card border border-red-500/50 bg-red-950/40">
@@ -1135,7 +1160,7 @@ export default function AdminPage() {
         </section>
       )}
 
-            {/* INSPECTIONS TAB */}
+      {/* INSPECTIONS TAB */}
       {activeTab === "inspections" && (
         <section className="space-y-4">
           {/* Header + search + actions */}
@@ -1300,9 +1325,9 @@ export default function AdminPage() {
                             </span>
                           </td>
                           <td className="px-2 py-1">
+                            {/* NOTE: no target="_blank" so it opens in same tab */}
                             <Link
                               href={`/inspection/${rec.id}`}
-                              target="_blank"
                               className="btn-ghost px-2 py-1 text-[11px]"
                             >
                               Open form
@@ -1327,5 +1352,3 @@ export default function AdminPage() {
     </div>
   );
 }
-
-

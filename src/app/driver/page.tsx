@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { useRouter } from "next/navigation";
 
 type Driver = {
   id: string;
@@ -291,6 +292,8 @@ function formatDateTime(iso: string) {
 }
 
 export default function DriverPage() {
+  const router = useRouter();
+
   const [driverName, setDriverName] = useState("");
   const [currentDriver, setCurrentDriver] = useState<Driver | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -341,6 +344,27 @@ export default function DriverPage() {
     };
 
     loadVehicles();
+  }, []);
+
+  // Restore driver session from localStorage (if present)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem("transafe_driver_session");
+    if (!saved) return;
+
+    try {
+      const parsed = JSON.parse(saved) as {
+        driver: Driver;
+        vehicleId: string;
+      };
+
+      setCurrentDriver(parsed.driver);
+      setDriverName(parsed.driver.full_name);
+      setSelectedVehicleId(parsed.vehicleId || "");
+      setIsSessionReady(true);
+    } catch (e) {
+      console.error("Failed to parse driver session from localStorage", e);
+    }
   }, []);
 
   const selectedVehicle = useMemo(
@@ -453,6 +477,17 @@ export default function DriverPage() {
       setAnswers({});
       setNotes("");
       setSignatureName("");
+
+      // Save session so Back from inspection keeps them logged in
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(
+          "transafe_driver_session",
+          JSON.stringify({
+            driver,
+            vehicleId: selectedVehicleId,
+          }),
+        );
+      }
     } catch (err: any) {
       console.error(err);
       setError(
@@ -465,6 +500,11 @@ export default function DriverPage() {
   };
 
   const handleLogout = () => {
+    // Clear session from localStorage
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("transafe_driver_session");
+    }
+
     // Completely log the driver out and return to the first screen
     setIsSessionReady(false);
     setCurrentDriver(null);
@@ -478,6 +518,9 @@ export default function DriverPage() {
     setSignatureName("");
     setSubmitMessage(null);
     setError(null);
+
+    // Go back to the landing page
+    router.push("/");
   };
 
   const updateAnswer = (itemId: string, value: AnswerValue) => {
@@ -995,7 +1038,6 @@ export default function DriverPage() {
                 </div>
                 <Link
                   href={`/inspection/${rec.id}`}
-                  target="_blank"
                   className="btn-ghost text-sm"
                 >
                   Open form
