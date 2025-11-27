@@ -1,65 +1,109 @@
-import Image from "next/image";
+import Link from "next/link";
 
-export default function Home() {
+export default function HomePage() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <div className="space-y-6">
+      {/* Hero / welcome card */}
+      <section className="card">
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">
+            Transafe 7D Inspections
+          </p>
+          <h1 className="text-2xl font-semibold text-slate-50 sm:text-3xl">
+            Welcome to the Transafe Inspection Portal
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="text-sm leading-relaxed text-slate-200/90">
+            A mobile-first tool for{" "}
+            <span className="font-semibold">
+              daily pre-trip and post-trip 7D inspections
+            </span>{" "}
+            for Transafe Transportation drivers and administrators.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          {/* Driver Portal card */}
+          <Link href="/driver" className="group">
+            <div className="flex h-full flex-col justify-between rounded-2xl bg-slate-950/60 p-4 ring-1 ring-white/10 transition hover:-translate-y-0.5 hover:bg-slate-900/80 hover:shadow-xl hover:ring-emerald-500/60">
+              <div className="space-y-2">
+                <p className="inline-flex items-center rounded-full bg-emerald-500/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-200">
+                  Driver Portal
+                </p>
+                <p className="text-sm font-semibold text-slate-50">
+                  For daily pre-trip &amp; post-trip checks
+                </p>
+                <p className="text-sm text-slate-300">
+                  Start your shift by selecting your name and vehicle, complete
+                  the state-required inspection checklist, and sign with your
+                  typed name.
+                </p>
+              </div>
+              <p className="mt-3 text-xs font-semibold text-emerald-300 group-hover:text-emerald-200">
+                Go to Driver Portal →
+              </p>
+            </div>
+          </Link>
+
+          {/* Admin Portal card */}
+          <Link href="/admin" className="group">
+            <div className="flex h-full flex-col justify-between rounded-2xl bg-slate-950/60 p-4 ring-1 ring-white/10 transition hover:-translate-y-0.5 hover:bg-slate-900/80 hover:shadow-xl hover:ring-emerald-500/60">
+              <div className="space-y-2">
+                <p className="inline-flex items-center rounded-full bg-slate-500/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-200">
+                  Admin Portal
+                </p>
+                <p className="text-sm font-semibold text-slate-50">
+                  Manage drivers, vehicles &amp; inspections
+                </p>
+                <p className="text-sm text-slate-300">
+                  Register fleet vehicles and drivers, review inspection history
+                  for up to 90 days, export records, and support 7D audit
+                  requirements.
+                </p>
+              </div>
+              <p className="mt-3 text-xs font-semibold text-slate-200 group-hover:text-emerald-200">
+                Go to Admin Portal →
+              </p>
+            </div>
+          </Link>
         </div>
-      </main>
+      </section>
+
+      {/* Key features / roadmap */}
+      <section className="card space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">
+          How the portal works
+        </h2>
+        <div className="grid gap-3 text-sm text-slate-200/90 sm:grid-cols-3">
+          <div className="rounded-2xl bg-slate-950/60 p-3">
+            <p className="text-xs font-semibold text-emerald-300">
+              1. Drivers
+            </p>
+            <p className="mt-1 text-sm">
+              Drivers select their name &amp; vehicle, complete all checklist
+              items (Pass / Fail / N/A), enter odometer, and certify with their
+              name.
+            </p>
+          </div>
+          <div className="rounded-2xl bg-slate-950/60 p-3">
+            <p className="text-xs font-semibold text-emerald-300">
+              2. Automatic records
+            </p>
+            <p className="mt-1 text-sm">
+              Submissions are stored with full details for 90 days, available to
+              both drivers and admins for audits and downloads.
+            </p>
+          </div>
+          <div className="rounded-2xl bg-slate-950/60 p-3">
+            <p className="text-xs font-semibold text-emerald-300">
+              3. Future phases
+            </p>
+            <p className="mt-1 text-sm">
+              Time-clock integration, student attendance, and a SaaS version for
+              other transportation providers are planned next.
+            </p>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
