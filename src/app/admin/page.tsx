@@ -48,6 +48,15 @@ function formatDateTime(iso: string | null) {
   })}`;
 }
 
+function getWeekStartDate(): Date {
+  const now = new Date();
+  const day = now.getDay(); // 0 (Sun) – 6 (Sat)
+  // We want Monday as week start:
+  // Mon -> 0, Tue -> 1, ..., Sun -> 6
+  const diff = (day + 6) % 7;
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - diff);
+}
+
 // ==== TIMECARDS HELPERS & TYPES ====
 
 type TimeEntry = {
@@ -66,6 +75,9 @@ type DriverTimeSummary = {
   dailySeconds: Record<string, number>;
   weekTotalSeconds: number;
 };
+
+const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+
 
 function getMondayOfWeek(date: Date): Date {
   const day = date.getDay(); // 0 (Sun) - 6 (Sat)
@@ -108,10 +120,19 @@ export default function AdminPage() {
 
   const [activeTab, setActiveTab] = useState<AdminTab>("inspections");
 
+    // If URL has #timecards (e.g. from Back button), open the Timecards tab
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash;
+    if (hash === "#timecards") {
+      setActiveTab("timecards" as AdminTab);
+    }
+  }, []);
+
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [inspections, setInspections] = useState<InspectionSummary[]>([]);
-
+  
   const [loading, setLoading] = useState(false);
   const [loadingInspections, setLoadingInspections] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1405,6 +1426,7 @@ export default function AdminPage() {
 // ---------- TIMECARDS ADMIN SECTION ----------
 
 function TimecardsAdminSection({ drivers }: { drivers: Driver[] }) {
+  // Monday for the currently selected week, stored as YYYY-MM-DD
   const [weekStart, setWeekStart] = useState<string>(() => {
     const monday = getMondayOfWeek(new Date());
     return formatYMD(monday);
@@ -1414,23 +1436,27 @@ function TimecardsAdminSection({ drivers }: { drivers: Driver[] }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Compute Mon–Fri from weekStart
+  // Mon–Fri dates for the current weekStart
   const weekDays = useMemo(() => {
-    const startDate = new Date(weekStart);
+    const monday = new Date(`${weekStart}T00:00:00`);
+    if (Number.isNaN(monday.getTime())) return [];
+
     const days: { date: string; pretty: string; label: string }[] = [];
-    const labels = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+
     for (let i = 0; i < 5; i += 1) {
       const d = new Date(
-        startDate.getFullYear(),
-        startDate.getMonth(),
-        startDate.getDate() + i,
+        monday.getFullYear(),
+        monday.getMonth(),
+        monday.getDate() + i,
       );
+
       days.push({
-        date: formatYMD(d),
-        pretty: formatPretty(d),
-        label: labels[i],
+        date: formatYMD(d),         // YYYY-MM-DD
+        pretty: formatPretty(d),    // e.g. "Nov 24"
+        label: WEEKDAY_LABELS[i],   // "Mon", "Tue", ...
       });
     }
+
     return days;
   }, [weekStart]);
 
@@ -1441,10 +1467,12 @@ function TimecardsAdminSection({ drivers }: { drivers: Driver[] }) {
     return `${first.pretty} – ${last.pretty}`;
   }, [weekDays]);
 
+  // Load time entries for the current week
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       setError(null);
+
       try {
         if (!drivers || drivers.length === 0 || weekDays.length === 0) {
           setSummaries([]);
@@ -1496,6 +1524,7 @@ function TimecardsAdminSection({ drivers }: { drivers: Driver[] }) {
                 ),
               );
           } else {
+            // still-open clock, count up to "now"
             dur = Math.max(
               0,
               Math.floor(
@@ -1524,8 +1553,11 @@ function TimecardsAdminSection({ drivers }: { drivers: Driver[] }) {
     load();
   }, [drivers, weekDays]);
 
+  // Move backwards/forwards by whole weeks
   const handleShiftWeek = (deltaWeeks: number) => {
-    const current = new Date(weekStart);
+    const current = new Date(`${weekStart}T00:00:00`);
+    if (Number.isNaN(current.getTime())) return;
+
     const newDate = new Date(
       current.getFullYear(),
       current.getMonth(),

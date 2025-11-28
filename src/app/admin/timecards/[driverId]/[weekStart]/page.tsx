@@ -66,24 +66,37 @@ export default function TimecardDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Build Mon–Fri week from the weekStart param we get from the URL
-  const weekDays = useMemo(() => {
+    const weekDays = useMemo(() => {
     if (!weekStartParam) return [];
-    const startDate = new Date(weekStartParam);
-    if (Number.isNaN(startDate.getTime())) return [];
+
+    // ✅ Parse "YYYY-MM-DD" as a local date (not UTC) to avoid shifting a day
+    const parts = weekStartParam.split("-");
+    if (parts.length !== 3) return [];
+
+    const [yearStr, monthStr, dayStr] = parts;
+    const year = Number(yearStr);
+    const month = Number(monthStr);
+    const day = Number(dayStr);
+
+    if (!year || !month || !day) return [];
+
+    // This is the Monday of the week, in local time
+    const monday = new Date(year, month - 1, day);
 
     const days: { date: string; pretty: string; label: string }[] = [];
     for (let i = 0; i < 5; i += 1) {
       const d = new Date(
-        startDate.getFullYear(),
-        startDate.getMonth(),
-        startDate.getDate() + i,
+        monday.getFullYear(),
+        monday.getMonth(),
+        monday.getDate() + i,
       );
       days.push({
-        date: formatYMD(d),
-        pretty: formatPretty(d),
-        label: WEEKDAY_LABELS[i],
+        date: formatYMD(d),        // "YYYY-MM-DD"
+        pretty: formatPretty(d),   // "Nov 24"
+        label: WEEKDAY_LABELS[i],  // "Monday", "Tuesday", ...
       });
     }
+
     return days;
   }, [weekStartParam]);
 
@@ -237,7 +250,7 @@ export default function TimecardDetailPage() {
       <section className="card flex items-center justify-between gap-2 print:hidden">
         <button
           type="button"
-          onClick={() => router.back()}
+          onClick={() => router.push("/admin#timecards")}
           className="btn-ghost px-3 py-1 text-sm"
         >
           ← Back to Timecards
