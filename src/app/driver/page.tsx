@@ -368,69 +368,144 @@ export default function DriverPage() {
   // - transafeDriverLastLogin: used to prefill the login form (survives logout)
   // - transafeDriverSession: used to auto-open the portal ONLY when explicitly
   //   returning from the Time Log page (flagged via sessionStorage).
+  // Restore previous driver session from localStorage
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    // 1) Prefill login from last login info (even after logout)
-    const lastLoginRaw = window.localStorage.getItem("transafeDriverLastLogin");
-    if (lastLoginRaw) {
-      try {
-        const last = JSON.parse(lastLoginRaw) as {
-          driverName?: string;
-          vehicleId?: string;
-        };
-        if (last.driverName) {
-          setDriverName((prev) => prev || last.driverName!);
+    const restoreSession = async () => {
+      // 1) Preferred: new unified session key
+      const stored = window.localStorage.getItem("transafeDriverSession");
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored) as {
+            driverId: string;
+            driverName: string;
+            licenseNumber: string | null;
+            vehicleId: string;
+          };
+
+          if (!parsed.driverId || !parsed.driverName) {
+            return;
+          }
+
+          setCurrentDriver({
+            id: parsed.driverId,
+            full_name: parsed.driverName,
+            license_number: parsed.licenseNumber,
+            is_active: true,
+            created_at: "",
+          });
+
+          setDriverName(parsed.driverName);
+          if (parsed.vehicleId) {
+            setSelectedVehicleId(parsed.vehicleId);
+          }
+          setIsSessionReady(true);
+          return;
+        } catch (err) {
+          console.error("Failed to restore driver session from transafeDriverSession", err);
         }
-        if (last.vehicleId) {
-          setSelectedVehicleId((prev) => prev || last.vehicleId!);
-        }
-      } catch (err) {
-        console.error("Failed to parse transafeDriverLastLogin", err);
       }
-    }
 
-    // 2) Optionally restore full session when coming back from Time Log
-    const storedSession = window.localStorage.getItem("transafeDriverSession");
-    if (!storedSession || isSessionReady) return;
+      // 2) Fallback: older keys (for drivers who logged in before we added the new session key)
+      const fallbackId = window.localStorage.getItem("transafeDriverId");
+      const fallbackName = window.localStorage.getItem("transafeDriverName");
 
-    // We use a one-shot flag in sessionStorage set by the Time Log page
-    const fromTimeLog =
-      window.sessionStorage.getItem("transafeReturnFromTimeLog") === "1";
+      if (!fallbackId && !fallbackName) {
+        // Nothing to restore
+        return;
+      }
 
-    if (!fromTimeLog) return;
+      try {
+        // Try to look up the driver in Supabase so we get a real id + license
+        let driver: Driver | null = null;
 
-    try {
-      const parsed = JSON.parse(storedSession) as {
-        driverId: string;
-        driverName: string;
-        licenseNumber: string | null;
-        vehicleId: string;
-      };
+        if (fallbackId) {
+          const { data, error } = await supabase
+            .from("drivers")
+            .select("*")
+            .eq("id", fallbackId)
+            .maybeSingle();
 
-      if (!parsed.driverId || !parsed.driverName || !parsed.vehicleId) return;
+          if (!error) {
+            driver = (data as Driver | null) ?? null;
+          }
+        }
 
-      setCurrentDriver({
-        id: parsed.driverId,
-        full_name: parsed.driverName,
-        license_number: parsed.licenseNumber,
-        is_active: true,
-        created_at: "",
-      });
-      setIsSessionReady(true);
-    } catch (err) {
-      console.error("Failed to restore driver session from localStorage", err);
-    } finally {
-      // Clear the flag so this only happens once per return
-      window.sessionStorage.removeItem("transafeReturnFromTimeLog");
-    }
-  }, [isSessionReady]);
+        if (!driver && fallbackName) {
+          const { data, error } = await supabase
+            .from("drivers")
+            .select("*")
+            .ilike("full_name", fallbackName)
+            .eq("is_active", true)
+            .order("created_at", { ascending: true })
+            .limit(1)
+            .maybeSingle();
+
+          if (!error) {
+            driver = (data as Driver | null) ?? null;
+          }
+        }
+
+        if (!driver) return;
+
+        setCurrentDriver(driver);
+        setDriverName(driver.full_name);
+        setIsSessionReady(true);
+
+        // Also save a proper unified session so future loads use the new path
+        const sessionPayload = {
+          driverId: driver.id,
+          driverName: driver.full_name,
+          licenseNumber: driver.license_number,
+          // we don't know the vehicle from the old keys, so leave it blank for now
+          vehicleId: "",
+        };
+        window.localStorage.setItem(
+          "transafeDriverSession",
+          JSON.stringify(sessionPayload),
+        );
+      } catch (err) {
+        console.error("Failed to restore driver session from legacy keys", err);
+      }
+    };
+
+    // Fire and forget
+    void restoreSession();
+  }, []);
 
   // ==== TIME TRACKING STATE ====
   const [clockBaseSeconds, setClockBaseSeconds] = useState(0); // completed time today
   const [activeSince, setActiveSince] = useState<Date | null>(null); // when current session started
   const [displaySeconds, setDisplaySeconds] = useState(0); // what we show
   const [weekBaseSeconds, setWeekBaseSeconds] = useState(0); // weekly total excluding live ticking
+
+  // Prefill login form from the last used driver (even after logout)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (isSessionReady) return; // already logged in, don't touch
+
+    const saved = window.localStorage.getItem("transafeRecentDriver");
+    if (!saved) return;
+
+    try {
+      const parsed = JSON.parse(saved) as {
+        driverName?: string;
+        vehicleId?: string;
+      };
+
+      // Only prefill if the inputs are currently empty
+      if (parsed.driverName && !driverName) {
+        setDriverName(parsed.driverName);
+      }
+      if (parsed.vehicleId && !selectedVehicleId) {
+        setSelectedVehicleId(parsed.vehicleId);
+      }
+    } catch (err) {
+      console.error("Failed to prefill recent driver", err);
+    }
+  }, [isSessionReady, driverName, selectedVehicleId]);
+
 
   // Load active vehicles
   useEffect(() => {
@@ -676,8 +751,8 @@ export default function DriverPage() {
            const driver = data[0] as Driver;
       setCurrentDriver(driver);
 
+            // ✅ Persist session so /driver can restore it later
       if (typeof window !== "undefined") {
-        // Session payload: used for active session restoration (from time-log)
         const sessionPayload = {
           driverId: driver.id,
           driverName: driver.full_name,
@@ -690,18 +765,18 @@ export default function DriverPage() {
           JSON.stringify(sessionPayload),
         );
 
-        // Simple keys used by the Time Log page
+        // Keys used by the Time Log page
         window.localStorage.setItem("transafeDriverId", driver.id);
         window.localStorage.setItem("transafeDriverName", driver.full_name);
 
-        // "Remember me" info: survives logout, only used to prefill login form
-        const lastLoginPayload = {
+        // 🧠 Remember this driver to prefill the next login (even after logout)
+        const recentPayload = {
           driverName: driver.full_name,
           vehicleId: selectedVehicleId,
         };
         window.localStorage.setItem(
-          "transafeDriverLastLogin",
-          JSON.stringify(lastLoginPayload),
+          "transafeRecentDriver",
+          JSON.stringify(recentPayload),
         );
       }
 
