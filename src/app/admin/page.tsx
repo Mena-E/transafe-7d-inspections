@@ -48,7 +48,57 @@ function formatDateTime(iso: string | null) {
   })}`;
 }
 
-type AdminTab = "drivers" | "vehicles" | "inspections";
+// ==== TIMECARDS HELPERS & TYPES ====
+
+type TimeEntry = {
+  id: string;
+  driver_id: string;
+  work_date: string; // YYYY-MM-DD
+  start_time: string;
+  end_time: string | null;
+  duration_seconds: number | null;
+};
+
+type DriverTimeSummary = {
+  driverId: string;
+  name: string;
+  license: string | null;
+  dailySeconds: Record<string, number>;
+  weekTotalSeconds: number;
+};
+
+function getMondayOfWeek(date: Date): Date {
+  const day = date.getDay(); // 0 (Sun) - 6 (Sat)
+  const diff = (day + 6) % 7; // 0 for Mon, 1 for Tue, ..., 6 for Sun
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() - diff);
+}
+
+function formatYMD(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${da}`;
+}
+
+function formatPretty(d: Date): string {
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatDuration(seconds: number): string {
+  const secs = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(
+    2,
+    "0",
+  )}:${String(s).padStart(2, "0")}`;
+}
+
+type AdminTab = "inspections" | "vehicles" | "drivers" | "timecards";
 
 export default function AdminPage() {
   const router = useRouter();
@@ -225,9 +275,11 @@ export default function AdminPage() {
 
       if (insertErr) throw insertErr;
 
-      setDrivers((prev) => [...prev, data as Driver].sort((a, b) =>
-        a.full_name.localeCompare(b.full_name),
-      ));
+      setDrivers((prev) =>
+        [...prev, data as Driver].sort((a, b) =>
+          a.full_name.localeCompare(b.full_name),
+        ),
+      );
       setNewDriverName("");
       setNewDriverLicense("");
     } catch (err: any) {
@@ -316,7 +368,7 @@ export default function AdminPage() {
     if (!confirmed) return;
 
     setLoading(true);
-       setError(null);
+    setError(null);
     try {
       const { error: deleteErr } = await supabase
         .from("drivers")
@@ -365,9 +417,11 @@ export default function AdminPage() {
 
       if (insertErr) throw insertErr;
 
-      setVehicles((prev) => [...prev, data as Vehicle].sort((a, b) =>
-        a.label.localeCompare(b.label),
-      ));
+      setVehicles((prev) =>
+        [...prev, data as Vehicle].sort((a, b) =>
+          a.label.localeCompare(b.label),
+        ),
+      );
 
       setVehicleLabel("");
       setVehicleYear("");
@@ -510,8 +564,8 @@ export default function AdminPage() {
         rec.inspection_type === "pre"
           ? "pre-trip"
           : rec.inspection_type === "post"
-            ? "post-trip"
-            : "";
+          ? "post-trip"
+          : "";
       const shift = rec.shift?.toLowerCase() ?? "";
       const status = rec.overall_status?.toLowerCase() ?? "";
       const date = (rec.submitted_at || rec.inspection_date || "")
@@ -579,10 +633,7 @@ export default function AdminPage() {
     const link = document.createElement("a");
     const today = new Date().toISOString().slice(0, 10);
     link.href = url;
-    link.setAttribute(
-      "download",
-      `transafe_inspections_${today}.csv`,
-    );
+    link.setAttribute("download", `transafe_inspections_${today}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -598,7 +649,7 @@ export default function AdminPage() {
           <h1 className="mb-2 text-xl font-semibold">Admin Portal</h1>
           <p className="text-sm text-slate-200/80">
             Enter the Transafe admin access code to manage drivers, vehicles,
-            and inspection records.
+            inspection records, and timecards.
           </p>
         </section>
 
@@ -644,10 +695,12 @@ export default function AdminPage() {
               Transafe Admin Dashboard
             </h1>
             <p className="text-xs text-slate-200/80">
-              Manage <span className="font-semibold">Drivers</span>,{" "}
-              <span className="font-semibold">Vehicles</span>, and{" "}
-              <span className="font-semibold">Inspection records</span> for up
-              to 90 days.
+              Manage{" "}
+              <span className="font-semibold">Inspections</span>,{" "}
+              <span className="font-semibold">Vehicles</span>,{" "}
+              <span className="font-semibold">Drivers</span>, and{" "}
+              <span className="font-semibold">Timecards</span> for your 7D
+              operation.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -673,12 +726,14 @@ export default function AdminPage() {
 
       {/* Tab navigation */}
       <section className="card flex flex-wrap gap-2">
-        {([
-          { id: "inspections", label: "Inspections" },
-          { id: "vehicles", label: "Vehicles" },
-          { id: "drivers", label: "Drivers" },
-          
-        ] as { id: AdminTab; label: string }[]).map((tab) => (
+        {(
+          [
+            { id: "inspections", label: "Inspections" },
+            { id: "vehicles", label: "Vehicles" },
+            { id: "drivers", label: "Drivers" },
+            { id: "timecards", label: "Timecards" },
+          ] as { id: AdminTab; label: string }[]
+        ).map((tab) => (
           <button
             key={tab.id}
             type="button"
@@ -774,8 +829,7 @@ export default function AdminPage() {
                             License: {driver.license_number || "N/A"}
                           </p>
                           <p className="text-[10px] text-slate-500">
-                            Status:{" "}
-                            {driver.is_active ? "Active" : "Inactive"}
+                            Status: {driver.is_active ? "Active" : "Inactive"}
                           </p>
                         </div>
                         <div className="flex flex-col gap-1">
@@ -793,15 +847,11 @@ export default function AdminPage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() =>
-                              handleToggleDriverActive(driver)
-                            }
+                            onClick={() => handleToggleDriverActive(driver)}
                             className="btn-ghost px-3 py-1 text-[11px]"
                             disabled={loading}
                           >
-                            {driver.is_active
-                              ? "Deactivate"
-                              : "Activate"}
+                            {driver.is_active ? "Deactivate" : "Activate"}
                           </button>
                           <button
                             type="button"
@@ -854,9 +904,7 @@ export default function AdminPage() {
                               type="button"
                               onClick={saveEditDriver}
                               className="btn-primary px-4 py-1.5 text-[11px]"
-                              disabled={
-                                loading || !editDriverName.trim()
-                              }
+                              disabled={loading || !editDriverName.trim()}
                             >
                               Save changes
                             </button>
@@ -1022,9 +1070,7 @@ export default function AdminPage() {
                             className="btn-ghost px-3 py-1 text-[11px]"
                             disabled={loading}
                           >
-                            {vehicle.is_active
-                              ? "Deactivate"
-                              : "Activate"}
+                            {vehicle.is_active ? "Deactivate" : "Activate"}
                           </button>
                           <button
                             type="button"
@@ -1129,9 +1175,7 @@ export default function AdminPage() {
                               type="button"
                               onClick={saveEditVehicle}
                               className="btn-primary px-4 py-1.5 text-[11px]"
-                              disabled={
-                                loading || !editVehicleLabel.trim()
-                              }
+                              disabled={loading || !editVehicleLabel.trim()}
                             >
                               Save changes
                             </button>
@@ -1326,7 +1370,6 @@ export default function AdminPage() {
                             </span>
                           </td>
                           <td className="px-2 py-1">
-                            {/* NOTE: no target="_blank" so it opens in same tab */}
                             <Link
                               href={`/inspection/${rec.id}`}
                               className="btn-ghost px-2 py-1 text-[11px]"
@@ -1350,6 +1393,288 @@ export default function AdminPage() {
           </section>
         </section>
       )}
+
+      {/* TIMECARDS TAB */}
+      {activeTab === "timecards" && (
+        <TimecardsAdminSection drivers={drivers} />
+      )}
+    </div>
+  );
+}
+
+// ---------- TIMECARDS ADMIN SECTION ----------
+
+function TimecardsAdminSection({ drivers }: { drivers: Driver[] }) {
+  const [weekStart, setWeekStart] = useState<string>(() => {
+    const monday = getMondayOfWeek(new Date());
+    return formatYMD(monday);
+  });
+
+  const [summaries, setSummaries] = useState<DriverTimeSummary[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Compute Mon–Fri from weekStart
+  const weekDays = useMemo(() => {
+    const startDate = new Date(weekStart);
+    const days: { date: string; pretty: string; label: string }[] = [];
+    const labels = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+    for (let i = 0; i < 5; i += 1) {
+      const d = new Date(
+        startDate.getFullYear(),
+        startDate.getMonth(),
+        startDate.getDate() + i,
+      );
+      days.push({
+        date: formatYMD(d),
+        pretty: formatPretty(d),
+        label: labels[i],
+      });
+    }
+    return days;
+  }, [weekStart]);
+
+  const weekPrettyRange = useMemo(() => {
+    if (weekDays.length === 0) return "";
+    const first = weekDays[0];
+    const last = weekDays[weekDays.length - 1];
+    return `${first.pretty} – ${last.pretty}`;
+  }, [weekDays]);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        if (!drivers || drivers.length === 0 || weekDays.length === 0) {
+          setSummaries([]);
+          setLoading(false);
+          return;
+        }
+
+        const weekStartStr = weekDays[0].date;
+        const weekEndStr = weekDays[weekDays.length - 1].date;
+
+        const { data: timeData, error: timeErr } = await supabase
+          .from("driver_time_entries")
+          .select(
+            "id, driver_id, work_date, start_time, end_time, duration_seconds",
+          )
+          .gte("work_date", weekStartStr)
+          .lte("work_date", weekEndStr);
+
+        if (timeErr) throw timeErr;
+
+        const entries = (timeData as TimeEntry[]) || [];
+        const now = new Date();
+
+        const byDriver: Record<string, DriverTimeSummary> = {};
+        for (const d of drivers) {
+          byDriver[d.id] = {
+            driverId: d.id,
+            name: d.full_name,
+            license: d.license_number,
+            dailySeconds: {},
+            weekTotalSeconds: 0,
+          };
+        }
+
+        for (const entry of entries) {
+          const summary = byDriver[entry.driver_id];
+          if (!summary) continue;
+
+          let dur: number;
+          if (entry.end_time) {
+            dur =
+              entry.duration_seconds ??
+              Math.max(
+                0,
+                Math.floor(
+                  (new Date(entry.end_time).getTime() -
+                    new Date(entry.start_time).getTime()) /
+                    1000,
+                ),
+              );
+          } else {
+            dur = Math.max(
+              0,
+              Math.floor(
+                (now.getTime() - new Date(entry.start_time).getTime()) / 1000,
+              ),
+            );
+          }
+
+          const key = entry.work_date;
+          summary.dailySeconds[key] = (summary.dailySeconds[key] ?? 0) + dur;
+          summary.weekTotalSeconds += dur;
+        }
+
+        setSummaries(Object.values(byDriver));
+      } catch (err: any) {
+        console.error(err);
+        setError(
+          err?.message ??
+            "Failed to load timecards. Please refresh or try again.",
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+  }, [drivers, weekDays]);
+
+  const handleShiftWeek = (deltaWeeks: number) => {
+    const current = new Date(weekStart);
+    const newDate = new Date(
+      current.getFullYear(),
+      current.getMonth(),
+      current.getDate() + deltaWeeks * 7,
+    );
+    const monday = getMondayOfWeek(newDate);
+    setWeekStart(formatYMD(monday));
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Header / controls */}
+      <section className="card space-y-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold md:text-lg">
+              Driver Timecards
+            </h2>
+            <p className="text-sm text-slate-300">
+              Live daily and weekly hours for each driver, Monday to Friday.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => handleShiftWeek(-1)}
+              className="btn-ghost px-3 py-1 text-xs"
+            >
+              ◀ Previous week
+            </button>
+            <button
+              type="button"
+              onClick={() => handleShiftWeek(1)}
+              className="btn-ghost px-3 py-1 text-xs"
+            >
+              Next week ▶
+            </button>
+          </div>
+        </div>
+
+        <p className="text-sm text-slate-400">
+          Week of{" "}
+          <span className="font-semibold text-slate-100">
+            {weekPrettyRange}
+          </span>{" "}
+          (Mon–Fri)
+        </p>
+      </section>
+
+      {error && (
+        <section className="card border border-red-500/50 bg-red-950/40">
+          <p className="text-sm font-medium text-red-200">{error}</p>
+        </section>
+      )}
+
+      {/* Summary table */}
+      <section className="card space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">
+            Weekly hours by driver
+          </h3>
+          {loading && (
+            <span className="text-xs text-slate-400">Loading…</span>
+          )}
+        </div>
+
+        {(!drivers || drivers.length === 0) && !loading ? (
+          <p className="text-sm text-slate-400">
+            No active drivers found. Add drivers in the Drivers tab to see
+            timecards here.
+          </p>
+        ) : (
+          <div className="overflow-x-auto rounded-2xl bg-slate-950/40">
+            <table className="min-w-full border-separate border-spacing-0 text-xs sm:text-sm">
+              <thead>
+                <tr className="bg-slate-900/80 text-slate-200">
+                  <th className="border-b border-slate-800 px-3 py-2 text-left font-semibold">
+                    Driver
+                  </th>
+                  <th className="border-b border-slate-800 px-3 py-2 text-left font-semibold">
+                    License #
+                  </th>
+                  {weekDays.map((d) => (
+                    <th
+                      key={d.date}
+                      className="border-b border-slate-800 px-3 py-2 text-right font-semibold"
+                    >
+                      <span className="block text-[11px] font-normal uppercase tracking-[0.12em] text-slate-400">
+                        {d.label}
+                      </span>
+                      <span className="text-[11px] sm:text-xs">
+                        {d.pretty}
+                      </span>
+                    </th>
+                  ))}
+                  <th className="border-b border-slate-800 px-3 py-2 text-right font-semibold">
+                    Weekly total
+                  </th>
+                  <th className="border-b border-slate-800 px-3 py-2 text-right font-semibold">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {summaries.map((s) => (
+                  <tr
+                    key={s.driverId}
+                    className="odd:bg-slate-950/60 even:bg-slate-900/60"
+                  >
+                    <td className="px-3 py-2 text-slate-100">
+                      {s.name || "Unknown"}
+                    </td>
+                    <td className="px-3 py-2 text-slate-100">
+                      {s.license || "—"}
+                    </td>
+                    {weekDays.map((d) => {
+                      const secs = s.dailySeconds[d.date] ?? 0;
+                      return (
+                        <td
+                          key={d.date}
+                          className="px-3 py-2 text-right font-mono text-[11px] text-slate-100 sm:text-xs"
+                        >
+                          {secs > 0 ? formatDuration(secs) : "00:00:00"}
+                        </td>
+                      );
+                    })}
+                    <td className="px-3 py-2 text-right font-mono text-[11px] text-emerald-200 sm:text-xs">
+                      {formatDuration(s.weekTotalSeconds)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <Link
+                        href={`/admin/timecards/${s.driverId}/${weekDays[0]?.date}`}
+                        className="btn-ghost px-3 py-1 text-[11px] sm:text-xs"
+                      >
+                        View timecard
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <p className="text-xs text-slate-400 sm:text-sm">
+          Timecards are calculated from pre-trip (clock start) and post-trip
+          (clock stop) inspections stored in the driver time entries table.
+        </p>
+      </section>
     </div>
   );
 }
