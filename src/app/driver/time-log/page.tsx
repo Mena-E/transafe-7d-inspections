@@ -1,388 +1,435 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 
 type TimeEntry = {
   id: string;
+  driver_id: string;
   work_date: string; // YYYY-MM-DD
   start_time: string;
   end_time: string | null;
   duration_seconds: number | null;
 };
 
-type DailySummary = {
-  date: string;        // YYYY-MM-DD
-  label: string;       // "Mon", "Tue"...
-  baseSeconds: number; // completed time
+type DriverSession = {
+  driverId: string;
+  driverName: string;
+  licenseNumber: string | null;
+};
+
+type DaySummary = {
+  date: string; // YYYY-MM-DD
+  entries: TimeEntry[];
+  totalSeconds: number;
 };
 
 function formatDuration(totalSeconds: number): string {
   const secs = Math.max(0, Math.floor(totalSeconds));
-  const hours = Math.floor(secs / 3600);
-  const minutes = Math.floor((secs % 3600) / 60);
-  const seconds = secs % 60;
-
-  const hh = hours.toString().padStart(2, "0");
-  const mm = minutes.toString().padStart(2, "0");
-  const ss = seconds.toString().padStart(2, "0");
-
-  return `${hh}:${mm}:${ss}`;
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(
+    2,
+    "0",
+  )}:${String(s).padStart(2, "0")}`;
 }
 
-function getTodayDateString() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = `${now.getMonth() + 1}`.padStart(2, "0");
-  const day = `${now.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
+function formatDateNice(ymd: string): string {
+  const [year, month, day] = ymd.split("-").map(Number);
+  const d = new Date(year, (month ?? 1) - 1, day ?? 1);
+  return d.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
 }
 
-// Monday of the current week
-function getWeekStartDate(): Date {
-  const now = new Date();
-  const day = now.getDay(); // 0 (Sun) - 6 (Sat)
-  const diff = (day + 6) % 7; // 0 for Monday, ... 6 for Sunday
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - diff);
+function formatTime(iso: string | null): string {
+  if (!iso) return "--:--";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "--:--";
+  return d.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-function formatDateShort(d: Date): string {
-  // e.g. "Nov 27"
-  const month = d.toLocaleString(undefined, { month: "short" });
-  const day = d.getDate();
-  return `${month} ${day}`;
+function getDateRangeLabel(daysBack: number): string {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(end.getDate() - daysBack + 1);
+  const startStr = start.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+  const endStr = end.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+  return `${startStr} – ${endStr}`;
 }
-
-const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 
 export default function DriverTimeLogPage() {
   const router = useRouter();
 
-  const [driverId, setDriverId] = useState<string | null>(null);
-  const [driverName, setDriverName] = useState<string | null>(null);
+  const [driver, setDriver] = useState<DriverSession | null>(null);
+  const [loadingDriver, setLoadingDriver] = useState(true);
 
-  const [loading, setLoading] = useState(false);
+  const [entries, setEntries] = useState<TimeEntry[]>([]);
+  const [loadingEntries, setLoadingEntries] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [dailySummaries, setDailySummaries] = useState<DailySummary[]>([]);
-  const [todayActiveStart, setTodayActiveStart] = useState<Date | null>(null);
-  const [todayBaseSeconds, setTodayBaseSeconds] = useState(0);
+  const DAYS_BACK = 14; // last 14 calendar days
 
-  const todayStr = getTodayDateString();
-
-  // Compute week dates (Mon–Fri) once
-  const weekDays = useMemo(() => {
-    const monday = getWeekStartDate();
-    const days: { date: string; label: string; pretty: string }[] = [];
-    for (let i = 0; i < 5; i += 1) {
-      const d = new Date(
-        monday.getFullYear(),
-        monday.getMonth(),
-        monday.getDate() + i,
-      );
-      const year = d.getFullYear();
-      const month = `${d.getMonth() + 1}`.padStart(2, "0");
-      const day = `${d.getDate()}`.padStart(2, "0");
-      const dateStr = `${year}-${month}-${day}`;
-      days.push({
-        date: dateStr,
-        label: WEEKDAY_LABELS[i],
-        pretty: formatDateShort(d),
-      });
-    }
-    return days;
-  }, []);
-
-  // Get week range as strings for query
-  const weekStartStr = weekDays[0]?.date;
-  const weekEndStr = weekDays[weekDays.length - 1]?.date;
-
-  // On mount, load driver info from localStorage
+  // Restore driver from localStorage (same keys used by Driver Portal)
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const id = window.localStorage.getItem("transafeDriverId");
-    const name = window.localStorage.getItem("transafeDriverName");
-    setDriverId(id);
-    setDriverName(name);
+
+    try {
+      const stored = window.localStorage.getItem("transafeDriverSession");
+      if (stored) {
+        const parsed = JSON.parse(stored) as {
+          driverId: string;
+          driverName: string;
+          licenseNumber: string | null;
+        };
+
+        if (parsed.driverId && parsed.driverName) {
+          setDriver({
+            driverId: parsed.driverId,
+            driverName: parsed.driverName,
+            licenseNumber: parsed.licenseNumber,
+          });
+          setLoadingDriver(false);
+          return;
+        }
+      }
+
+      // Fallback: older keys
+      const fallbackId = window.localStorage.getItem("transafeDriverId");
+      const fallbackName = window.localStorage.getItem("transafeDriverName");
+
+      if (fallbackId && fallbackName) {
+        setDriver({
+          driverId: fallbackId,
+          driverName: fallbackName,
+          licenseNumber: null,
+        });
+      }
+    } catch (err) {
+      console.error("Failed to restore driver in Time Log", err);
+    } finally {
+      setLoadingDriver(false);
+    }
   }, []);
 
-  // Load weekly time entries once driverId is known
+  // Load last N days of entries for this driver
   useEffect(() => {
+    if (!driver?.driverId) return;
+
     const load = async () => {
-      if (!driverId || !weekStartStr || !weekEndStr) return;
-      setLoading(true);
+      setLoadingEntries(true);
       setError(null);
 
       try {
+        const end = new Date();
+        const start = new Date();
+        start.setDate(end.getDate() - (DAYS_BACK - 1));
+
+        const startYMD = start.toISOString().slice(0, 10);
+        const endYMD = end.toISOString().slice(0, 10);
+
         const { data, error: timeErr } = await supabase
           .from("driver_time_entries")
-          .select("id, work_date, start_time, end_time, duration_seconds")
-          .eq("driver_id", driverId)
-          .gte("work_date", weekStartStr)
-          .lte("work_date", weekEndStr)
+          .select(
+            "id, driver_id, work_date, start_time, end_time, duration_seconds",
+          )
+          .eq("driver_id", driver.driverId)
+          .gte("work_date", startYMD)
+          .lte("work_date", endYMD)
+          .order("work_date", { ascending: false })
           .order("start_time", { ascending: true });
 
         if (timeErr) throw timeErr;
 
-        const entries = (data as TimeEntry[]) || [];
-
-        // Initialize map for each weekday with 0 base seconds
-        const base: Record<string, number> = {};
-        weekDays.forEach((d) => {
-          base[d.date] = 0;
-        });
-
-        let activeStart: Date | null = null;
-
-        for (const entry of entries) {
-          const wd = entry.work_date;
-          if (!base[wd]) {
-            base[wd] = 0;
-          }
-
-          if (entry.end_time) {
-            const dur =
-              entry.duration_seconds ??
-              Math.max(
-                0,
-                Math.floor(
-                  (new Date(entry.end_time).getTime() -
-                    new Date(entry.start_time).getTime()) /
-                    1000,
-                ),
-              );
-            base[wd] += dur;
-          } else {
-            // Open (running) session. We only care if it's today.
-            if (wd === todayStr) {
-              activeStart = new Date(entry.start_time);
-            }
-          }
-        }
-
-        // Build daily summary for UI
-        const summaries: DailySummary[] = weekDays.map((day, idx) => ({
-          date: day.date,
-          label: WEEKDAY_LABELS[idx],
-          baseSeconds: base[day.date] ?? 0,
-        }));
-
-        setDailySummaries(summaries);
-        setTodayBaseSeconds(base[todayStr] ?? 0);
-        setTodayActiveStart(activeStart);
+        setEntries((data as TimeEntry[]) || []);
       } catch (err: any) {
         console.error(err);
         setError(
-          err?.message ?? "Failed to load weekly time log. Please try again.",
+          err?.message ??
+            "Could not load your time log. Please try again or contact your supervisor.",
         );
       } finally {
-        setLoading(false);
+        setLoadingEntries(false);
       }
     };
 
-    load();
-  }, [driverId, weekStartStr, weekEndStr, weekDays, todayStr]);
+    void load();
+  }, [driver?.driverId]);
 
-  // Live ticking: if there's an open session today, update that day's display
-  const [tickSeconds, setTickSeconds] = useState(0);
+  // Group by day for display
+  const daySummaries: DaySummary[] = useMemo(() => {
+    if (!entries || entries.length === 0) return [];
+    const map = new Map<string, DaySummary>();
 
-  useEffect(() => {
-    if (!todayActiveStart) {
-      setTickSeconds(0);
-      return;
+    for (const entry of entries) {
+      const existing = map.get(entry.work_date);
+      let duration = 0;
+
+      if (entry.end_time) {
+        duration =
+          entry.duration_seconds ??
+          Math.max(
+            0,
+            Math.floor(
+              (new Date(entry.end_time).getTime() -
+                new Date(entry.start_time).getTime()) /
+                1000,
+            ),
+          );
+      } else {
+        // Open session – compute until now
+        const now = new Date();
+        duration = Math.max(
+          0,
+          Math.floor(
+            (now.getTime() - new Date(entry.start_time).getTime()) / 1000,
+          ),
+        );
+      }
+
+      if (!existing) {
+        map.set(entry.work_date, {
+          date: entry.work_date,
+          entries: [entry],
+          totalSeconds: duration,
+        });
+      } else {
+        existing.entries.push(entry);
+        existing.totalSeconds += duration;
+      }
     }
 
-    const startMs = todayActiveStart.getTime();
-
-    const update = () => {
-      const now = Date.now();
-      const delta = Math.max(0, Math.floor((now - startMs) / 1000));
-      setTickSeconds(delta);
-    };
-
-    update();
-    const id = setInterval(update, 1000);
-    return () => clearInterval(id);
-  }, [todayActiveStart]);
-
-  // Build display daily seconds and weekly total
-  const dailyDisplaySeconds = useMemo(() => {
-    const map: Record<string, number> = {};
-    dailySummaries.forEach((d) => {
-      map[d.date] = d.baseSeconds;
-    });
-
-    if (todayActiveStart) {
-      map[todayStr] = (map[todayStr] ?? 0) + tickSeconds;
-    }
-
-    return map;
-  }, [dailySummaries, todayStr, tickSeconds, todayActiveStart]);
-
-  const weeklyTotalSeconds = useMemo(() => {
-    return Object.values(dailyDisplaySeconds).reduce(
-      (sum, secs) => sum + secs,
-      0,
+    // Sort by date descending (most recent first)
+    return Array.from(map.values()).sort((a, b) =>
+      a.date < b.date ? 1 : a.date > b.date ? -1 : 0,
     );
-  }, [dailyDisplaySeconds]);
+  }, [entries]);
 
-  // If driver is not known, prompt them to sign in at Driver Portal
-  if (!driverId) {
+  // Total seconds across the whole range (for small summary)
+  const rangeTotalSeconds = useMemo(
+    () => daySummaries.reduce((sum, d) => sum + d.totalSeconds, 0),
+    [daySummaries],
+  );
+
+  const handleBackToPortal = () => {
+    router.push("/driver");
+  };
+
+  if (loadingDriver) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4 max-w-xl mx-auto">
         <section className="card">
-          <h1 className="mb-2 text-2xl font-semibold">Driver Time Log</h1>
-          <p className="text-base text-slate-200/80">
-            To view your time log, please sign in through the Driver Portal.
-          </p>
+          <p className="text-sm text-slate-200">Loading driver session…</p>
         </section>
+      </div>
+    );
+  }
 
+  if (!driver) {
+    return (
+      <div className="space-y-4 max-w-xl mx-auto">
         <section className="card space-y-3">
-          <p className="text-sm text-slate-300">
-            It looks like we don&apos;t have an active driver session on this
-            device.
+          <h1 className="text-lg font-semibold">Time Log</h1>
+          <p className="text-sm text-slate-200/80">
+            We couldn&apos;t find an active driver session.
           </p>
-          <Link href="/driver" className="btn-primary w-full text-base">
+          <p className="text-xs text-slate-400">
+            Please go back to the driver portal, sign in with your name and
+            vehicle, then return to the Time Log.
+          </p>
+          <button
+            type="button"
+            onClick={() => router.push("/driver")}
+            className="btn-primary w-full text-sm"
+          >
             Go to Driver Portal
-          </Link>
+          </button>
         </section>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-          {/* Header – mobile-first layout */}
-      <section className="card flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        {/* Driver + week info */}
+    <div className="space-y-5 max-w-3xl mx-auto">
+      {/* Header */}
+      <section className="card flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
-          <h1 className="mb-1 text-lg font-semibold md:text-2xl">
-            Driver Time Log
-          </h1>
+          <h1 className="text-lg font-semibold sm:text-xl">Time Log</h1>
           <p className="text-sm text-slate-200/80">
-            {driverName ? (
-              <>
-                Showing hours for{" "}
-                <span className="font-semibold text-emerald-200">
-                  {driverName}
-                </span>
-                .
-              </>
-            ) : (
-              "Showing hours for current driver."
-            )}
+            {driver.driverName} •{" "}
+            <span className="text-xs text-slate-300">
+              License #: {driver.licenseNumber ?? "N/A"}
+            </span>
           </p>
-          <p className="text-xs text-slate-400 md:text-sm">
-            Week of{" "}
-            <span className="font-semibold">
-              {weekDays[0]?.pretty} – {weekDays[weekDays.length - 1]?.pretty}
-            </span>{" "}
-            (Mon–Fri)
+          <p className="text-xs text-slate-400">
+            Showing the last {DAYS_BACK} calendar days (
+            {getDateRangeLabel(DAYS_BACK)}).
           </p>
         </div>
 
-        {/* Weekly total + back button */}
-        <div className="flex w-full flex-col items-stretch gap-3 md:w-auto md:items-end">
-          <div className="w-full rounded-2xl bg-slate-900 px-3 py-2 text-left ring-1 ring-emerald-500/60 md:w-auto md:text-right">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
-              Weekly total
+        <div className="flex flex-col items-stretch gap-2 sm:items-end">
+          <div className="rounded-2xl bg-slate-900 px-3 py-2 text-right ring-1 ring-slate-600/70">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+              Total in this range
             </p>
-            <p className="font-mono text-xl font-semibold text-emerald-300 md:text-2xl">
-              {formatDuration(weeklyTotalSeconds)}
+            <p className="font-mono text-sm font-semibold text-slate-50">
+              {formatDuration(rangeTotalSeconds)}
             </p>
           </div>
-
-          <div className="flex w-full justify-start md:justify-end">
-            <button
-              type="button"
-              onClick={() => {
-                if (typeof window !== "undefined") {
-                  // Tell the /driver page we are explicitly returning from Time Log
-                  window.sessionStorage.setItem(
-                    "transafeReturnFromTimeLog",
-                    "1",
-                  );
-                }
-                router.push("/driver");
-              }}
-              className="btn-ghost w-full px-3 py-1 text-sm md:w-auto"
-            >
-              Back to Driver Portal
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleBackToPortal}
+            className="btn-ghost px-3 py-1 text-xs"
+          >
+            ← Back to Driver Portal
+          </button>
         </div>
       </section>
 
       {error && (
         <section className="card border border-red-500/50 bg-red-950/40">
-          <p className="text-sm font-medium text-red-200">{error}</p>
+          <p className="text-xs font-medium text-red-200">{error}</p>
         </section>
       )}
 
-      {/* Weekly table */}
-      <section className="card space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-base font-semibold uppercase tracking-[0.16em] text-slate-300">
-            Hours worked (Mon–Fri)
-          </h2>
-          {loading && (
-            <span className="text-sm text-slate-400">Loading…</span>
-          )}
-        </div>
-
-        <div className="overflow-hidden rounded-2xl bg-slate-950/40">
-          <table className="min-w-full border-separate border-spacing-0 text-sm">
-            <thead>
-              <tr className="bg-slate-900/80 text-slate-200">
-                <th className="border-b border-slate-800 px-4 py-2 text-left text-sm font-semibold">
-                  Day
-                </th>
-                <th className="border-b border-slate-800 px-4 py-2 text-left text-sm font-semibold">
-                  Date
-                </th>
-                <th className="border-b border-slate-800 px-4 py-2 text-right text-sm font-semibold">
-                  Hours (HH:MM:SS)
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {weekDays.map((day, idx) => {
-                const label = WEEKDAY_LABELS[idx];
-                const secs = dailyDisplaySeconds[day.date] ?? 0;
-                return (
-                  <tr
-                    key={day.date}
-                    className={
-                      idx % 2 === 0
-                        ? "bg-slate-950/60"
-                        : "bg-slate-900/60"
-                    }
-                  >
-                    <td className="px-4 py-2 text-slate-100">{label}</td>
-                    <td className="px-4 py-2 text-slate-200">
-                      {day.pretty} ({day.date})
-                    </td>
-                    <td className="px-4 py-2 text-right font-mono text-slate-100">
-                      {formatDuration(secs)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        {!loading && !error && weeklyTotalSeconds === 0 && (
-          <p className="text-sm text-slate-400">
-            No time entries recorded for this week yet.
-          </p>
+      {/* Time entries */}
+      <section className="space-y-3">
+        {loadingEntries && (
+          <section className="card">
+            <p className="text-sm text-slate-200">Loading time entries…</p>
+          </section>
         )}
 
-        <p className="text-sm text-slate-400">
-          Time entries are based on your pre-trip (clock start) and post-trip
-          (clock stop) submissions. Records are stored for up to 2 years and
-          will later support viewing past weeks and months.
+        {!loadingEntries && daySummaries.length === 0 && !error && (
+          <section className="card">
+            <p className="text-sm text-slate-200/90">
+              No time entries found for the last {DAYS_BACK} days.
+            </p>
+            <p className="mt-1 text-xs text-slate-400">
+              Once you submit pre-trip and post-trip inspections tied to your
+              daily shifts, your timecard sessions will appear here.
+            </p>
+          </section>
+        )}
+
+        {daySummaries.map((day) => (
+          <section
+            key={day.date}
+            className="card space-y-2 rounded-2xl bg-slate-950/70"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-slate-50">
+                  {formatDateNice(day.date)}
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  {day.entries.length} session
+                  {day.entries.length === 1 ? "" : "s"}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                  Daily total
+                </p>
+                <p className="font-mono text-sm font-semibold text-emerald-200">
+                  {formatDuration(day.totalSeconds)}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2 rounded-xl bg-slate-950/80 p-2">
+              {day.entries.map((entry) => {
+                const isOpen = !entry.end_time;
+                const duration =
+                  entry.end_time || entry.duration_seconds != null
+                    ? formatDuration(
+                        entry.duration_seconds ??
+                          Math.max(
+                            0,
+                            Math.floor(
+                              (new Date(
+                                entry.end_time ?? new Date().toISOString(),
+                              ).getTime() -
+                                new Date(entry.start_time).getTime()) /
+                                1000,
+                            ),
+                          ),
+                      )
+                    : "--:--:--";
+
+                return (
+                  <div
+                    key={entry.id}
+                    className="flex flex-col gap-1 rounded-lg border border-white/5 bg-slate-900/80 px-2 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+                  >
+                    <div className="flex gap-4">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">
+                          Start
+                        </p>
+                        <p className="font-mono text-[13px] text-slate-50">
+                          {formatTime(entry.start_time)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">
+                          End
+                        </p>
+                        <p className="font-mono text-[13px] text-slate-50">
+                          {entry.end_time ? formatTime(entry.end_time) : "—"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3 sm:justify-end">
+                      <div className="text-right">
+                        <p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">
+                          Duration
+                        </p>
+                        <p className="font-mono text-[13px] text-emerald-200">
+                          {duration}
+                        </p>
+                      </div>
+                      {isOpen && (
+                        <span className="inline-flex items-center rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-200">
+                          Open session
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+      </section>
+
+      {/* Small hint footer */}
+      <section className="card">
+        <p className="text-[11px] text-slate-400">
+          Your time entries are created automatically when you complete{" "}
+          <span className="font-semibold text-slate-200">
+            pre-trip (clock start)
+          </span>{" "}
+          and{" "}
+          <span className="font-semibold text-slate-200">
+            post-trip (clock stop)
+          </span>{" "}
+          inspections in the Driver Portal.
         </p>
       </section>
     </div>
