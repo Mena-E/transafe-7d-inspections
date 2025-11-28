@@ -65,7 +65,7 @@ export default function RootLayout({
 
         <div className="min-h-screen">
           {/* App header with logo */}
-          <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur">
+          <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/90 backdrop-blur">
             <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
               {/* LEFT: logo + company name */}
               <div className="flex items-center gap-3">
