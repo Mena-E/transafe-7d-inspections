@@ -468,11 +468,10 @@ export default function DriverPage() {
     void restoreSession();
   }, []);
 
-  // ==== TIME TRACKING STATE ====
-  const [clockBaseSeconds, setClockBaseSeconds] = useState(0);
-  const [activeSince, setActiveSince] = useState<Date | null>(null);
-  const [displaySeconds, setDisplaySeconds] = useState(0);
-  const [weekBaseSeconds, setWeekBaseSeconds] = useState(0);
+    // ==== TIME TRACKING STATE ====
+  const [clockBaseSeconds, setClockBaseSeconds] = useState(0); // completed time today
+  const [activeSince, setActiveSince] = useState<Date | null>(null); // when current session started
+  const [displaySeconds, setDisplaySeconds] = useState(0); // what we show
 
   // Prefill login form from the last used driver (even after logout)
   useEffect(() => {
@@ -591,14 +590,10 @@ export default function DriverPage() {
     fetchHistoryForDriver(currentDriver?.full_name ?? driverName.trim());
   }, [isSessionReady, driverName, currentDriver?.full_name]);
 
-  // ==== TIME TRACKING: LOAD TODAY + WEEK ====
-
-  const loadTimeForTodayAndWeek = async (driverId: string) => {
+    const loadTimeForToday = async (driverId: string) => {
     const todayStr = getTodayDateString();
-    const weekStartStr = getWeekStartDateString();
 
     try {
-      // Today entries
       const { data: todayData, error: todayErr } = await supabase
         .from("driver_time_entries")
         .select("id, work_date, start_time, end_time, duration_seconds")
@@ -625,6 +620,7 @@ export default function DriverPage() {
             );
           baseSeconds += dur;
         } else {
+          // open session
           activeStart = new Date(entry.start_time);
         }
       });
@@ -632,44 +628,15 @@ export default function DriverPage() {
       setClockBaseSeconds(baseSeconds);
       setActiveSince(activeStart);
       setDisplaySeconds(baseSeconds);
-
-      // Weekly entries
-      const { data: weekData, error: weekErr } = await supabase
-        .from("driver_time_entries")
-        .select("duration_seconds, work_date, start_time, end_time")
-        .eq("driver_id", driverId)
-        .gte("work_date", weekStartStr)
-        .lte("work_date", todayStr);
-
-      if (weekErr) throw weekErr;
-
-      let weekSeconds = 0;
-      (weekData as TimeEntry[] | null)?.forEach((entry) => {
-        if (entry.end_time) {
-          const dur =
-            entry.duration_seconds ??
-            Math.max(
-              0,
-              Math.floor(
-                (new Date(entry.end_time).getTime() -
-                  new Date(entry.start_time).getTime()) /
-                  1000,
-              ),
-            );
-          weekSeconds += dur;
-        }
-      });
-
-      setWeekBaseSeconds(weekSeconds);
     } catch (err: any) {
       console.error("Failed to load driver time summary", err);
     }
   };
 
   // When a driver session becomes ready, load today's and this week's time
-  useEffect(() => {
+    useEffect(() => {
     if (!isSessionReady || !currentDriver?.id) return;
-    loadTimeForTodayAndWeek(currentDriver.id);
+    loadTimeForToday(currentDriver.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSessionReady, currentDriver?.id]);
 
@@ -692,12 +659,6 @@ export default function DriverPage() {
     const id = setInterval(update, 1000);
     return () => clearInterval(id);
   }, [activeSince, clockBaseSeconds]);
-
-  // Weekly display should include live ticking portion from today
-  const weeklyDisplaySeconds = useMemo(() => {
-    const liveTodayDelta = displaySeconds - clockBaseSeconds;
-    return weekBaseSeconds + Math.max(0, liveTodayDelta);
-  }, [weekBaseSeconds, displaySeconds, clockBaseSeconds]);
 
   // ==== SESSION HANDLERS ====
 
@@ -799,7 +760,6 @@ export default function DriverPage() {
     setClockBaseSeconds(0);
     setActiveSince(null);
     setDisplaySeconds(0);
-    setWeekBaseSeconds(0);
 
     if (typeof window !== "undefined") {
       window.localStorage.removeItem("transafeDriverId");
@@ -915,7 +875,6 @@ export default function DriverPage() {
       if (updateErr) throw updateErr;
 
       setClockBaseSeconds((prev) => prev + duration);
-      setWeekBaseSeconds((prev) => prev + duration);
       setActiveSince(null);
     } catch (err: any) {
       console.error("Failed to stop work session", err);
@@ -1073,6 +1032,7 @@ export default function DriverPage() {
   return (
     <div className="space-y-5">
       {/* Header with clocks – mobile-first layout */}
+           {/* Header with live clock – mobile-first layout */}
       <section className="card flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         {/* Driver + vehicle info */}
         <div className="space-y-1">
@@ -1099,31 +1059,17 @@ export default function DriverPage() {
           )}
         </div>
 
-        {/* Clocks + actions */}
+        {/* Today clock + actions */}
         <div className="flex w-full flex-col items-stretch gap-3 md:w-auto md:items-end">
-          <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-1">
-            {/* Today clock */}
-            <div className="rounded-2xl bg-slate-900 px-3 py-2 text-left ring-1 ring-emerald-500/60 md:text-right">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
-                Today&apos;s clock
-              </p>
-              <p className="font-mono text-lg font-semibold text-emerald-300">
-                {formatDuration(displaySeconds)}
-              </p>
-            </div>
-
-            {/* Week total */}
-            <div className="rounded-2xl bg-slate-900 px-3 py-2 text-left ring-1 ring-slate-600/70 md:text-right">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                Week total (Mon–Fri)
-              </p>
-              <p className="font-mono text-sm font-semibold text-slate-100">
-                {formatDuration(weeklyDisplaySeconds)}
-              </p>
-            </div>
+          <div className="rounded-2xl bg-slate-900 px-3 py-2 text-left ring-1 ring-emerald-500/60 md:text-right">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
+              Today&apos;s clock
+            </p>
+            <p className="font-mono text-lg font-semibold text-emerald-300">
+              {formatDuration(displaySeconds)}
+            </p>
           </div>
 
-          {/* Actions */}
           <div className="flex w-full justify-start gap-2 md:justify-end">
             <Link
               href="/driver/time-log"

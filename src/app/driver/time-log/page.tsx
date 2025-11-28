@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 
 type TimeEntry = {
@@ -57,18 +56,29 @@ function formatTime(iso: string | null): string {
   });
 }
 
-function getDateRangeLabel(daysBack: number): string {
-  const end = new Date();
-  const start = new Date();
-  start.setDate(end.getDate() - daysBack + 1);
-  const startStr = start.toLocaleDateString(undefined, {
+// Monday for a given date (Mon–Fri week)
+function getMondayOfWeek(date: Date): Date {
+  const day = date.getDay(); // 0 (Sun) – 6 (Sat)
+  const diff = (day + 6) % 7; // Mon -> 0, Tue -> 1, ..., Sun -> 6
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() - diff);
+}
+
+function formatWeekRangeLabel(monday: Date): string {
+  const friday = new Date(
+    monday.getFullYear(),
+    monday.getMonth(),
+    monday.getDate() + 4,
+  );
+
+  const startStr = monday.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
   });
-  const endStr = end.toLocaleDateString(undefined, {
+  const endStr = friday.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
   });
+
   return `${startStr} – ${endStr}`;
 }
 
@@ -82,7 +92,42 @@ export default function DriverTimeLogPage() {
   const [loadingEntries, setLoadingEntries] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const DAYS_BACK = 14; // last 14 calendar days
+  // 0 = current week, -1 = previous week, +1 = next week, etc.
+  const [weekOffset, setWeekOffset] = useState(0);
+
+  // Compute the Monday of the displayed week based on the offset
+  const weekMonday = useMemo(() => {
+    const baseMonday = getMondayOfWeek(new Date());
+    return new Date(
+      baseMonday.getFullYear(),
+      baseMonday.getMonth(),
+      baseMonday.getDate() + weekOffset * 7,
+    );
+  }, [weekOffset]);
+
+  const weekLabel = useMemo(
+    () => formatWeekRangeLabel(weekMonday),
+    [weekMonday],
+  );
+
+  const weekStartYMD = useMemo(() => {
+    const y = weekMonday.getFullYear();
+    const m = String(weekMonday.getMonth() + 1).padStart(2, "0");
+    const d = String(weekMonday.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }, [weekMonday]);
+
+  const weekEndYMD = useMemo(() => {
+    const friday = new Date(
+      weekMonday.getFullYear(),
+      weekMonday.getMonth(),
+      weekMonday.getDate() + 4,
+    );
+    const y = friday.getFullYear();
+    const m = String(friday.getMonth() + 1).padStart(2, "0");
+    const d = String(friday.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }, [weekMonday]);
 
   // Restore driver from localStorage (same keys used by Driver Portal)
   useEffect(() => {
@@ -126,7 +171,7 @@ export default function DriverTimeLogPage() {
     }
   }, []);
 
-  // Load last N days of entries for this driver
+  // Load entries for the selected week (Mon–Fri)
   useEffect(() => {
     if (!driver?.driverId) return;
 
@@ -135,21 +180,14 @@ export default function DriverTimeLogPage() {
       setError(null);
 
       try {
-        const end = new Date();
-        const start = new Date();
-        start.setDate(end.getDate() - (DAYS_BACK - 1));
-
-        const startYMD = start.toISOString().slice(0, 10);
-        const endYMD = end.toISOString().slice(0, 10);
-
         const { data, error: timeErr } = await supabase
           .from("driver_time_entries")
           .select(
             "id, driver_id, work_date, start_time, end_time, duration_seconds",
           )
           .eq("driver_id", driver.driverId)
-          .gte("work_date", startYMD)
-          .lte("work_date", endYMD)
+          .gte("work_date", weekStartYMD)
+          .lte("work_date", weekEndYMD)
           .order("work_date", { ascending: false })
           .order("start_time", { ascending: true });
 
@@ -168,7 +206,7 @@ export default function DriverTimeLogPage() {
     };
 
     void load();
-  }, [driver?.driverId]);
+  }, [driver?.driverId, weekStartYMD, weekEndYMD]);
 
   // Group by day for display
   const daySummaries: DaySummary[] = useMemo(() => {
@@ -219,8 +257,8 @@ export default function DriverTimeLogPage() {
     );
   }, [entries]);
 
-  // Total seconds across the whole range (for small summary)
-  const rangeTotalSeconds = useMemo(
+  // Total hours for the week
+  const weekTotalSeconds = useMemo(
     () => daySummaries.reduce((sum, d) => sum + d.totalSeconds, 0),
     [daySummaries],
   );
@@ -228,6 +266,10 @@ export default function DriverTimeLogPage() {
   const handleBackToPortal = () => {
     router.push("/driver");
   };
+
+  const goToPreviousWeek = () => setWeekOffset((prev) => prev - 1);
+  const goToNextWeek = () => setWeekOffset((prev) => prev + 1);
+  const goToThisWeek = () => setWeekOffset(0);
 
   if (loadingDriver) {
     return (
@@ -266,7 +308,7 @@ export default function DriverTimeLogPage() {
   return (
     <div className="space-y-5 max-w-3xl mx-auto">
       {/* Header */}
-      <section className="card flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <section className="card flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
           <h1 className="text-lg font-semibold sm:text-xl">Time Log</h1>
           <p className="text-sm text-slate-200/80">
@@ -276,20 +318,48 @@ export default function DriverTimeLogPage() {
             </span>
           </p>
           <p className="text-xs text-slate-400">
-            Showing the last {DAYS_BACK} calendar days (
-            {getDateRangeLabel(DAYS_BACK)}).
+            Week of{" "}
+            <span className="font-semibold text-slate-100">
+              {weekLabel}
+            </span>{" "}
+            (Mon–Fri)
           </p>
         </div>
 
         <div className="flex flex-col items-stretch gap-2 sm:items-end">
           <div className="rounded-2xl bg-slate-900 px-3 py-2 text-right ring-1 ring-slate-600/70">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-              Total in this range
+              Total hrs this week
             </p>
             <p className="font-mono text-sm font-semibold text-slate-50">
-              {formatDuration(rangeTotalSeconds)}
+              {formatDuration(weekTotalSeconds)}
             </p>
           </div>
+
+          <div className="flex flex-wrap gap-1 justify-start sm:justify-end">
+            <button
+              type="button"
+              onClick={goToPreviousWeek}
+              className="btn-ghost px-2 py-1 text-[11px]"
+            >
+              ◀ Previous week
+            </button>
+            <button
+              type="button"
+              onClick={goToThisWeek}
+              className="btn-ghost px-2 py-1 text-[11px]"
+            >
+              This week
+            </button>
+            <button
+              type="button"
+              onClick={goToNextWeek}
+              className="btn-ghost px-2 py-1 text-[11px]"
+            >
+              Next week ▶
+            </button>
+          </div>
+
           <button
             type="button"
             onClick={handleBackToPortal}
@@ -317,11 +387,12 @@ export default function DriverTimeLogPage() {
         {!loadingEntries && daySummaries.length === 0 && !error && (
           <section className="card">
             <p className="text-sm text-slate-200/90">
-              No time entries found for the last {DAYS_BACK} days.
+              No time entries found for this week.
             </p>
             <p className="mt-1 text-xs text-slate-400">
               Once you submit pre-trip and post-trip inspections tied to your
-              daily shifts, your timecard sessions will appear here.
+              daily shifts, your timecard sessions for this week will appear
+              here.
             </p>
           </section>
         )}
@@ -354,22 +425,31 @@ export default function DriverTimeLogPage() {
             <div className="space-y-2 rounded-xl bg-slate-950/80 p-2">
               {day.entries.map((entry) => {
                 const isOpen = !entry.end_time;
-                const duration =
-                  entry.end_time || entry.duration_seconds != null
-                    ? formatDuration(
-                        entry.duration_seconds ??
-                          Math.max(
-                            0,
-                            Math.floor(
-                              (new Date(
-                                entry.end_time ?? new Date().toISOString(),
-                              ).getTime() -
-                                new Date(entry.start_time).getTime()) /
-                                1000,
-                            ),
-                          ),
-                      )
-                    : "--:--:--";
+
+                let computedSeconds = 0;
+                if (entry.end_time) {
+                  computedSeconds =
+                    entry.duration_seconds ??
+                    Math.max(
+                      0,
+                      Math.floor(
+                        (new Date(entry.end_time).getTime() -
+                          new Date(entry.start_time).getTime()) /
+                          1000,
+                      ),
+                    );
+                } else {
+                  const now = new Date();
+                  computedSeconds = Math.max(
+                    0,
+                    Math.floor(
+                      (now.getTime() - new Date(entry.start_time).getTime()) /
+                        1000,
+                    ),
+                  );
+                }
+
+                const duration = formatDuration(computedSeconds);
 
                 return (
                   <div
