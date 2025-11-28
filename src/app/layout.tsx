@@ -78,7 +78,7 @@ export default function RootLayout({
                 <div className="leading-tight">
                   <p className="text-sm font-semibold text-slate-50">
                     Transafe Transportation
-                  </p>git
+                  </p>
                   <p className="text-[11px] text-slate-400">
                     7D Daily Inspection Portal
                   </p>
