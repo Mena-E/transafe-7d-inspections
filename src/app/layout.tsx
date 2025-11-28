@@ -69,7 +69,7 @@ export default function RootLayout({
               <div className="flex items-center gap-3">
                 {/* LOGO: plain image, no extra container styling */}
                 <img
-                  src="/logo.png"
+                  src="/transafe-logo.png"
                   alt="Transafe logo"
                   className="h-10 w-auto sm:h-12"
                 />
@@ -78,7 +78,7 @@ export default function RootLayout({
                 <div className="leading-tight">
                   <p className="text-sm font-semibold text-slate-50">
                     Transafe Transportation
-                  </p>
+                  </p>git
                   <p className="text-[11px] text-slate-400">
                     7D Daily Inspection Portal
                   </p>
