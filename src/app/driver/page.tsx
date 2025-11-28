@@ -362,7 +362,7 @@ export default function DriverPage() {
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
 
      const [history, setHistory] = useState<InspectionRecord[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+     const [loadingHistory, setLoadingHistory] = useState(false);
 
   // Restore previous driver info from localStorage
   // - transafeDriverLastLogin: used to prefill the login form (survives logout)
@@ -1029,62 +1029,70 @@ export default function DriverPage() {
   return (
     <div className="space-y-4">
       {/* Header with game clock */}
-      <section className="card flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="mb-1 text-xl font-semibold">Driver Portal</h1>
-          <p className="text-xs text-slate-200/80">
+           {/* Header with game clock – mobile-first layout */}
+      <section className="card flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        {/* Driver + vehicle info */}
+        <div className="space-y-1">
+          <h1 className="mb-1 text-lg font-semibold md:text-xl">
+            Driver Portal
+          </h1>
+          <p className="text-sm text-slate-200/80">
             Signed in as{" "}
             <span className="font-semibold text-emerald-200">
               {driverName.trim()}
             </span>
           </p>
-          <p className="text-[11px] text-slate-300">
+          <p className="text-xs text-slate-300">
             License #: {currentDriver?.license_number ?? "N/A"}
           </p>
           <p className="mt-1 text-sm font-medium text-slate-100">
             Vehicle: {vehicleMainLine}
           </p>
           {selectedVehicle && (
-            <p className="text-[11px] text-slate-300">
+            <p className="text-xs text-slate-300">
               Label: {selectedVehicle.label} • Plate:{" "}
               {selectedVehicle.plate || "N/A"}
             </p>
           )}
         </div>
 
-        <div className="flex flex-col items-end gap-2">
-          {/* Game-style daily clock */}
-          <div className="rounded-2xl bg-slate-900 px-3 py-1.5 text-right ring-1 ring-emerald-500/60">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300">
-              Today&apos;s clock
-            </p>
-            <p className="font-mono text-lg font-semibold text-emerald-300">
-              {formatDuration(displaySeconds)}
-            </p>
+        {/* Clocks + actions */}
+        <div className="flex w-full flex-col items-stretch gap-3 md:w-auto md:items-end">
+          {/* On mobile: clocks in a 2-column grid; on desktop: stacked */}
+          <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-1">
+            {/* Today clock */}
+            <div className="rounded-2xl bg-slate-900 px-3 py-2 text-left ring-1 ring-emerald-500/60 md:text-right">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
+                Today&apos;s clock
+              </p>
+              <p className="font-mono text-lg font-semibold text-emerald-300">
+                {formatDuration(displaySeconds)}
+              </p>
+            </div>
+
+            {/* Week total */}
+            <div className="rounded-2xl bg-slate-900 px-3 py-2 text-left ring-1 ring-slate-600/70 md:text-right">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                Week total (Mon–Fri)
+              </p>
+              <p className="font-mono text-sm font-semibold text-slate-100">
+                {formatDuration(weeklyDisplaySeconds)}
+              </p>
+            </div>
           </div>
 
-          {/* Weekly tally */}
-          <div className="rounded-2xl bg-slate-900 px-3 py-1.5 text-right ring-1 ring-slate-600/70">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-              Week total (Mon–Fri)
-            </p>
-            <p className="font-mono text-sm font-semibold text-slate-100">
-              {formatDuration(weeklyDisplaySeconds)}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Future: Time log link (placeholder for now) */}
+          {/* Actions */}
+          <div className="flex w-full justify-start gap-2 md:justify-end">
             <Link
               href="/driver/time-log"
-              className="btn-ghost px-3 py-1 text-[11px]"
+              className="btn-ghost flex-1 px-3 py-1 text-xs md:flex-none md:text-[11px]"
             >
               Time log
             </Link>
             <button
               type="button"
               onClick={handleLogout}
-              className="btn-ghost px-3 py-1 text-[11px]"
+              className="btn-ghost flex-1 px-3 py-1 text-xs md:flex-none md:text-[11px]"
             >
               Log out
             </button>
