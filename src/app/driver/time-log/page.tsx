@@ -290,13 +290,20 @@ export default function DriverTimeLogPage() {
             </p>
           </div>
           {/* ✅ Use history back so we return to the *logged-in* driver screen */}
-                    <button
+                  <button
             type="button"
-            onClick={() => router.push("/driver?from=time-log")}
+            onClick={() => {
+              if (typeof window !== "undefined") {
+                // Tell the /driver page we are explicitly returning from Time Log
+                window.sessionStorage.setItem("transafeReturnFromTimeLog", "1");
+              }
+              router.push("/driver");
+            }}
             className="btn-ghost px-3 py-1 text-sm"
           >
             Back to Driver Portal
           </button>
+
         </div>
       </section>
 

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 type Driver = {
   id: string;
@@ -361,67 +361,70 @@ export default function DriverPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
 
-    const [history, setHistory] = useState<InspectionRecord[]>([]);
-    const [loadingHistory, setLoadingHistory] = useState(false);
+     const [history, setHistory] = useState<InspectionRecord[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
-    // Restore previous driver info from localStorage
-    // - transafeDriverLastLogin: used to prefill the login form (survives logout)
-    // - transafeDriverSession: used to auto-open the portal ONLY when coming back
-    //   from /driver/time-log while a session is still active.
-    const searchParams = useSearchParams();
+  // Restore previous driver info from localStorage
+  // - transafeDriverLastLogin: used to prefill the login form (survives logout)
+  // - transafeDriverSession: used to auto-open the portal ONLY when explicitly
+  //   returning from the Time Log page (flagged via sessionStorage).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
 
-    useEffect(() => {
-        if (typeof window === "undefined") return;
-
-        // 1) Prefill login from last login info (even after logout)
-        const lastLoginRaw = window.localStorage.getItem("transafeDriverLastLogin");
-        if (lastLoginRaw) {
-        try {
-            const last = JSON.parse(lastLoginRaw) as {
-            driverName?: string;
-            vehicleId?: string;
-            };
-            if (last.driverName) {
-            setDriverName((prev) => prev || last.driverName!);
-            }
-            if (last.vehicleId) {
-            setSelectedVehicleId((prev) => prev || last.vehicleId!);
-            }
-        } catch (err) {
-            console.error("Failed to parse transafeDriverLastLogin", err);
-        }
-        }
-
-        // 2) Optionally restore full session when coming back from Time Log
-        const storedSession = window.localStorage.getItem("transafeDriverSession");
-        if (!storedSession) return;
-
-        try {
-        const parsed = JSON.parse(storedSession) as {
-            driverId: string;
-            driverName: string;
-            licenseNumber: string | null;
-            vehicleId: string;
+    // 1) Prefill login from last login info (even after logout)
+    const lastLoginRaw = window.localStorage.getItem("transafeDriverLastLogin");
+    if (lastLoginRaw) {
+      try {
+        const last = JSON.parse(lastLoginRaw) as {
+          driverName?: string;
+          vehicleId?: string;
         };
-
-        if (!parsed.driverId || !parsed.driverName || !parsed.vehicleId) return;
-
-        const from = searchParams.get("from");
-
-        if (from === "time-log" && !isSessionReady) {
-            setCurrentDriver({
-            id: parsed.driverId,
-            full_name: parsed.driverName,
-            license_number: parsed.licenseNumber,
-            is_active: true,
-            created_at: "",
-            });
-            setIsSessionReady(true);
+        if (last.driverName) {
+          setDriverName((prev) => prev || last.driverName!);
         }
-        } catch (err) {
-        console.error("Failed to restore driver session from localStorage", err);
+        if (last.vehicleId) {
+          setSelectedVehicleId((prev) => prev || last.vehicleId!);
         }
-    }, [searchParams, isSessionReady]);
+      } catch (err) {
+        console.error("Failed to parse transafeDriverLastLogin", err);
+      }
+    }
+
+    // 2) Optionally restore full session when coming back from Time Log
+    const storedSession = window.localStorage.getItem("transafeDriverSession");
+    if (!storedSession || isSessionReady) return;
+
+    // We use a one-shot flag in sessionStorage set by the Time Log page
+    const fromTimeLog =
+      window.sessionStorage.getItem("transafeReturnFromTimeLog") === "1";
+
+    if (!fromTimeLog) return;
+
+    try {
+      const parsed = JSON.parse(storedSession) as {
+        driverId: string;
+        driverName: string;
+        licenseNumber: string | null;
+        vehicleId: string;
+      };
+
+      if (!parsed.driverId || !parsed.driverName || !parsed.vehicleId) return;
+
+      setCurrentDriver({
+        id: parsed.driverId,
+        full_name: parsed.driverName,
+        license_number: parsed.licenseNumber,
+        is_active: true,
+        created_at: "",
+      });
+      setIsSessionReady(true);
+    } catch (err) {
+      console.error("Failed to restore driver session from localStorage", err);
+    } finally {
+      // Clear the flag so this only happens once per return
+      window.sessionStorage.removeItem("transafeReturnFromTimeLog");
+    }
+  }, [isSessionReady]);
 
   // ==== TIME TRACKING STATE ====
   const [clockBaseSeconds, setClockBaseSeconds] = useState(0); // completed time today
