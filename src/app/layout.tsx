@@ -68,14 +68,12 @@ export default function RootLayout({
             <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3">
               <div className="flex items-center gap-3">
                 {/* LOGO: plain image, no extra container styling */}
-          <Image
-            src="/logo.png"
-            alt="Transafe logo"
-            width={220}
-            height={60}
-            className="h-10 w-auto sm:h-12"
-            priority
-          />
+                <img
+                  src="/logo.png"
+                  alt="Transafe logo"
+                  className="h-10 w-auto sm:h-12"
+                />
+
 
                 <div className="leading-tight">
                   <p className="text-sm font-semibold text-slate-50">
