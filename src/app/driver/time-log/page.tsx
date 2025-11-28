@@ -254,10 +254,13 @@ export default function DriverTimeLogPage() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <section className="card flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="mb-1 text-2xl font-semibold">Driver Time Log</h1>
+          {/* Header – mobile-first layout */}
+      <section className="card flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        {/* Driver + week info */}
+        <div className="space-y-1">
+          <h1 className="mb-1 text-lg font-semibold md:text-2xl">
+            Driver Time Log
+          </h1>
           <p className="text-sm text-slate-200/80">
             {driverName ? (
               <>
@@ -271,7 +274,7 @@ export default function DriverTimeLogPage() {
               "Showing hours for current driver."
             )}
           </p>
-          <p className="text-sm text-slate-400">
+          <p className="text-xs text-slate-400 md:text-sm">
             Week of{" "}
             <span className="font-semibold">
               {weekDays[0]?.pretty} – {weekDays[weekDays.length - 1]?.pretty}
@@ -280,30 +283,35 @@ export default function DriverTimeLogPage() {
           </p>
         </div>
 
-        <div className="flex flex-col items-end gap-2">
-          <div className="rounded-2xl bg-slate-900 px-4 py-2 text-right ring-1 ring-emerald-500/60">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
+        {/* Weekly total + back button */}
+        <div className="flex w-full flex-col items-stretch gap-3 md:w-auto md:items-end">
+          <div className="w-full rounded-2xl bg-slate-900 px-3 py-2 text-left ring-1 ring-emerald-500/60 md:w-auto md:text-right">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
               Weekly total
             </p>
-            <p className="font-mono text-2xl font-semibold text-emerald-300">
+            <p className="font-mono text-xl font-semibold text-emerald-300 md:text-2xl">
               {formatDuration(weeklyTotalSeconds)}
             </p>
           </div>
-          {/* ✅ Use history back so we return to the *logged-in* driver screen */}
-                  <button
-            type="button"
-            onClick={() => {
-              if (typeof window !== "undefined") {
-                // Tell the /driver page we are explicitly returning from Time Log
-                window.sessionStorage.setItem("transafeReturnFromTimeLog", "1");
-              }
-              router.push("/driver");
-            }}
-            className="btn-ghost px-3 py-1 text-sm"
-          >
-            Back to Driver Portal
-          </button>
 
+          <div className="flex w-full justify-start md:justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  // Tell the /driver page we are explicitly returning from Time Log
+                  window.sessionStorage.setItem(
+                    "transafeReturnFromTimeLog",
+                    "1",
+                  );
+                }
+                router.push("/driver");
+              }}
+              className="btn-ghost w-full px-3 py-1 text-sm md:w-auto"
+            >
+              Back to Driver Portal
+            </button>
+          </div>
         </div>
       </section>
 

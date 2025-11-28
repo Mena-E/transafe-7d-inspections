@@ -249,8 +249,8 @@ function AnswerButton({
   label: string;
   onClick: () => void;
 }) {
-  const baseClasses =
-    "flex-1 min-w-[80px] rounded-xl md:rounded-2xl border px-3 py-2 md:px-4 md:py-3 text-xs md:text-sm font-semibold text-center transition active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/70";
+    const baseClasses =
+    "flex-1 min-w-[70px] rounded-lg md:rounded-2xl border px-2.5 py-1.5 md:px-4 md:py-3 text-[11px] md:text-sm font-semibold text-center transition active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/70";
 
   let colorClasses = "";
 
@@ -1258,28 +1258,28 @@ export default function DriverPage() {
             </div>
 
             {/* Checklist */}
-            <div className="space-y-3">
+            <div className="space-y-2">
               {Object.entries(groupedChecklist).map(
                 ([category, itemsInCategory]) => (
-                  <div key={category} className="space-y-2">
+                  <div key={category} className="space-y-1.5">
                     <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">
                       {category}
                     </h3>
-                    <div className="space-y-2 rounded-xl bg-slate-950/40 p-2">
+                    <div className="space-y-1.5 rounded-xl bg-slate-950/40 p-2">
                       {itemsInCategory.map((item) => {
                         const value = answers[item.id];
                         return (
                           <div
                             key={item.id}
-                            className="flex flex-col gap-3 rounded-lg border-b border-white/5 px-2 py-3 last:border-0 md:flex-row md:items-center md:justify-between md:gap-4 md:border-none md:py-2 hover:bg-slate-900/40"
+                            className="flex flex-col gap-2 rounded-lg border-b border-white/5 px-2 py-2 last:border-0 md:flex-row md:items-center md:justify-between md:gap-4 md:border-none md:py-2 hover:bg-slate-900/40"
                           >
-                            {/* Question Text: Larger and bold on mobile for readability */}
+                            {/* Question Text */}
                             <p className="text-sm font-medium text-slate-100 md:flex-1 md:text-xs md:font-normal">
                               {item.label}
                             </p>
 
-                            {/* Buttons: Full width row on mobile, compact on desktop */}
-                            <div className="flex w-full gap-2 md:w-auto md:gap-1">
+                            {/* Buttons: full-width row on mobile, compact on desktop */}
+                            <div className="flex w-full gap-1.5 md:w-auto md:gap-1">
                               <AnswerButton
                                 value="pass"
                                 label="P"
