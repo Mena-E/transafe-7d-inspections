@@ -1,8 +1,9 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import Image from "next/image";
 import type { ReactNode } from "react";
+import HeaderDateTime from "@/components/HeaderDateTime"; // ✅ NEW
+import Image from "next/image";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -65,16 +66,17 @@ export default function RootLayout({
         <div className="min-h-screen">
           {/* App header with logo */}
           <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur">
-            <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3">
+            <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
+              {/* LEFT: logo + company name */}
               <div className="flex items-center gap-3">
-                {/* LOGO: plain image, no extra container styling */}
-                <img
-                  src="/transafe-logo.png"
+                <Image
+                  src="/transafe-logo.png" // ✅ make sure public/transafe-logo.png exists
                   alt="Transafe logo"
+                  width={220}
+                  height={60}
                   className="h-10 w-auto sm:h-12"
+                  priority
                 />
-
-
                 <div className="leading-tight">
                   <p className="text-sm font-semibold text-slate-50">
                     Transafe Transportation
@@ -84,7 +86,9 @@ export default function RootLayout({
                   </p>
                 </div>
               </div>
-              {/* Navigation removed: driver/admin buttons are now only on home page */}
+
+              {/* RIGHT: current day / date / time */}
+              <HeaderDateTime timezoneLabel="ET" />
             </div>
           </header>
 
