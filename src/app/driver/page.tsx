@@ -1,4 +1,4 @@
-"use client";
+  "use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -249,7 +249,7 @@ function AnswerButton({
   label: string;
   onClick: () => void;
 }) {
-    const baseClasses =
+  const baseClasses =
     "flex-1 min-w-[70px] rounded-lg md:rounded-2xl border px-2.5 py-1.5 md:px-4 md:py-3 text-[11px] md:text-sm font-semibold text-center transition active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/70";
 
   let colorClasses = "";
@@ -361,13 +361,9 @@ export default function DriverPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
 
-     const [history, setHistory] = useState<InspectionRecord[]>([]);
-     const [loadingHistory, setLoadingHistory] = useState(false);
+  const [history, setHistory] = useState<InspectionRecord[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // Restore previous driver info from localStorage
-  // - transafeDriverLastLogin: used to prefill the login form (survives logout)
-  // - transafeDriverSession: used to auto-open the portal ONLY when explicitly
-  //   returning from the Time Log page (flagged via sessionStorage).
   // Restore previous driver session from localStorage
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -403,21 +399,22 @@ export default function DriverPage() {
           setIsSessionReady(true);
           return;
         } catch (err) {
-          console.error("Failed to restore driver session from transafeDriverSession", err);
+          console.error(
+            "Failed to restore driver session from transafeDriverSession",
+            err,
+          );
         }
       }
 
-      // 2) Fallback: older keys (for drivers who logged in before we added the new session key)
+      // 2) Fallback: older keys
       const fallbackId = window.localStorage.getItem("transafeDriverId");
       const fallbackName = window.localStorage.getItem("transafeDriverName");
 
       if (!fallbackId && !fallbackName) {
-        // Nothing to restore
         return;
       }
 
       try {
-        // Try to look up the driver in Supabase so we get a real id + license
         let driver: Driver | null = null;
 
         if (fallbackId) {
@@ -453,12 +450,10 @@ export default function DriverPage() {
         setDriverName(driver.full_name);
         setIsSessionReady(true);
 
-        // Also save a proper unified session so future loads use the new path
         const sessionPayload = {
           driverId: driver.id,
           driverName: driver.full_name,
           licenseNumber: driver.license_number,
-          // we don't know the vehicle from the old keys, so leave it blank for now
           vehicleId: "",
         };
         window.localStorage.setItem(
@@ -470,20 +465,19 @@ export default function DriverPage() {
       }
     };
 
-    // Fire and forget
     void restoreSession();
   }, []);
 
   // ==== TIME TRACKING STATE ====
-  const [clockBaseSeconds, setClockBaseSeconds] = useState(0); // completed time today
-  const [activeSince, setActiveSince] = useState<Date | null>(null); // when current session started
-  const [displaySeconds, setDisplaySeconds] = useState(0); // what we show
-  const [weekBaseSeconds, setWeekBaseSeconds] = useState(0); // weekly total excluding live ticking
+  const [clockBaseSeconds, setClockBaseSeconds] = useState(0);
+  const [activeSince, setActiveSince] = useState<Date | null>(null);
+  const [displaySeconds, setDisplaySeconds] = useState(0);
+  const [weekBaseSeconds, setWeekBaseSeconds] = useState(0);
 
   // Prefill login form from the last used driver (even after logout)
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (isSessionReady) return; // already logged in, don't touch
+    if (isSessionReady) return;
 
     const saved = window.localStorage.getItem("transafeRecentDriver");
     if (!saved) return;
@@ -494,7 +488,6 @@ export default function DriverPage() {
         vehicleId?: string;
       };
 
-      // Only prefill if the inputs are currently empty
       if (parsed.driverName && !driverName) {
         setDriverName(parsed.driverName);
       }
@@ -505,7 +498,6 @@ export default function DriverPage() {
       console.error("Failed to prefill recent driver", err);
     }
   }, [isSessionReady, driverName, selectedVehicleId]);
-
 
   // Load active vehicles
   useEffect(() => {
@@ -588,7 +580,6 @@ export default function DriverPage() {
       setHistory((data as InspectionRecord[]) || []);
     } catch (err: any) {
       console.error(err);
-      // silent fail for history
     } finally {
       setLoadingHistory(false);
     }
@@ -598,7 +589,7 @@ export default function DriverPage() {
   useEffect(() => {
     if (!isSessionReady || !driverName.trim()) return;
     fetchHistoryForDriver(currentDriver?.full_name ?? driverName.trim());
-  }, [isSessionReady, driverName]);
+  }, [isSessionReady, driverName, currentDriver?.full_name]);
 
   // ==== TIME TRACKING: LOAD TODAY + WEEK ====
 
@@ -634,17 +625,15 @@ export default function DriverPage() {
             );
           baseSeconds += dur;
         } else {
-          // open session
           activeStart = new Date(entry.start_time);
         }
       });
 
       setClockBaseSeconds(baseSeconds);
       setActiveSince(activeStart);
-      setDisplaySeconds(baseSeconds); // will be updated by effect if active
+      setDisplaySeconds(baseSeconds);
 
-      // Weekly entries (Mon–Fri)
-      // We use week start (Monday) and today as upper bound, which is enough
+      // Weekly entries
       const { data: weekData, error: weekErr } = await supabase
         .from("driver_time_entries")
         .select("duration_seconds, work_date, start_time, end_time")
@@ -674,10 +663,10 @@ export default function DriverPage() {
       setWeekBaseSeconds(weekSeconds);
     } catch (err: any) {
       console.error("Failed to load driver time summary", err);
-      // don't show as fatal error; time tracking is secondary to inspections
     }
   };
-    // When a driver session becomes ready, load today's and this week's time
+
+  // When a driver session becomes ready, load today's and this week's time
   useEffect(() => {
     if (!isSessionReady || !currentDriver?.id) return;
     loadTimeForTodayAndWeek(currentDriver.id);
@@ -687,7 +676,6 @@ export default function DriverPage() {
   // Tick displaySeconds when we have an active session
   useEffect(() => {
     if (!activeSince) {
-      // no active session; show just the base
       setDisplaySeconds(clockBaseSeconds);
       return;
     }
@@ -700,7 +688,7 @@ export default function DriverPage() {
       setDisplaySeconds(clockBaseSeconds + elapsed);
     };
 
-    update(); // initial
+    update();
     const id = setInterval(update, 1000);
     return () => clearInterval(id);
   }, [activeSince, clockBaseSeconds]);
@@ -713,8 +701,7 @@ export default function DriverPage() {
 
   // ==== SESSION HANDLERS ====
 
-    const handleStartSession = async () => {
-    // Normalize the name: trim and collapse multiple spaces
+  const handleStartSession = async () => {
     const normalizeName = (name: string) =>
       name.trim().replace(/\s+/g, " ");
 
@@ -733,7 +720,6 @@ export default function DriverPage() {
       const { data, error: drvErr } = await supabase
         .from("drivers")
         .select("*")
-        // Case-insensitive match on full_name
         .ilike("full_name", inputName)
         .eq("is_active", true)
         .order("created_at", { ascending: true });
@@ -748,10 +734,10 @@ export default function DriverPage() {
         return;
       }
 
-           const driver = data[0] as Driver;
+      const driver = data[0] as Driver;
       setCurrentDriver(driver);
 
-            // ✅ Persist session so /driver can restore it later
+      // Persist session
       if (typeof window !== "undefined") {
         const sessionPayload = {
           driverId: driver.id,
@@ -765,11 +751,9 @@ export default function DriverPage() {
           JSON.stringify(sessionPayload),
         );
 
-        // Keys used by the Time Log page
         window.localStorage.setItem("transafeDriverId", driver.id);
         window.localStorage.setItem("transafeDriverName", driver.full_name);
 
-        // 🧠 Remember this driver to prefill the next login (even after logout)
         const recentPayload = {
           driverName: driver.full_name,
           vehicleId: selectedVehicleId,
@@ -799,7 +783,6 @@ export default function DriverPage() {
   };
 
   const handleLogout = () => {
-    // Clear driver session state
     setIsSessionReady(false);
     setCurrentDriver(null);
     setDriverName("");
@@ -813,20 +796,18 @@ export default function DriverPage() {
     setSubmitMessage(null);
     setError(null);
 
-    // Reset time tracking state
     setClockBaseSeconds(0);
     setActiveSince(null);
     setDisplaySeconds(0);
     setWeekBaseSeconds(0);
 
-    // Clear any persisted driver data so there is no silent auto-login
     if (typeof window !== "undefined") {
       window.localStorage.removeItem("transafeDriverId");
       window.localStorage.removeItem("transafeDriverName");
       window.localStorage.removeItem("transafeDriverSession");
+      // NOTE: we keep transafeRecentDriver on purpose to prefill next time
     }
 
-    // 🚀 Send them back to the landing page
     router.push("/");
   };
 
@@ -856,7 +837,6 @@ export default function DriverPage() {
     const todayStr = getTodayDateString();
 
     try {
-      // Check if there is already an open session for today
       const { data: existing, error: existingErr } = await supabase
         .from("driver_time_entries")
         .select("id, start_time, end_time")
@@ -866,12 +846,10 @@ export default function DriverPage() {
         .maybeSingle();
 
       if (existingErr && existingErr.code !== "PGRST116") {
-        // PGRST116 = no rows; ignore
         throw existingErr;
       }
 
       if (existing && !existing.end_time) {
-        // Session already running; just sync clock to this start_time
         setActiveSince(new Date(existing.start_time));
         return;
       }
@@ -893,10 +871,8 @@ export default function DriverPage() {
 
       const entry = insertData as TimeEntry;
       setActiveSince(new Date(entry.start_time));
-      // baseSeconds stays the same; ticking effect will add live time
     } catch (err: any) {
       console.error("Failed to start work session", err);
-      // Don't block inspection submission because of time tracking
     }
   };
 
@@ -916,7 +892,6 @@ export default function DriverPage() {
         .single();
 
       if (openErr) {
-        // If no open session, just ignore
         setActiveSince(null);
         return;
       }
@@ -939,7 +914,6 @@ export default function DriverPage() {
 
       if (updateErr) throw updateErr;
 
-      // Update in-memory totals
       setClockBaseSeconds((prev) => prev + duration);
       setWeekBaseSeconds((prev) => prev + duration);
       setActiveSince(null);
@@ -989,9 +963,6 @@ export default function DriverPage() {
 
       if (insertErr) throw insertErr;
 
-      // TIME TRACKING HOOK:
-      // - Pre-trip: start / resume today's work clock
-      // - Post-trip: stop work clock
       if (selectedInspectionType === "pre") {
         await startWorkSessionIfNeeded();
       } else if (selectedInspectionType === "post") {
@@ -1002,10 +973,8 @@ export default function DriverPage() {
         "Inspection submitted successfully. Thank you for completing your daily check.",
       );
 
-      // Refresh history using the canonical driver name
       fetchHistoryForDriver(currentDriver?.full_name ?? driverName.trim());
 
-      // Reset form but keep session active and clock running / stopped as set above
       setSelectedInspectionType(null);
       setShift("");
       setOdometer("");
@@ -1023,12 +992,12 @@ export default function DriverPage() {
   // 1) Pre-session: enter name + select vehicle
   if (!isSessionReady) {
     return (
-      <div className="space-y-4">
-        <section className="card">
-          <h1 className="mb-2 text-xl font-semibold">Driver Portal</h1>
+      <div className="space-y-4 max-w-md mx-auto">
+        <section className="card space-y-2 text-center sm:text-left">
+          <h1 className="text-xl font-semibold sm:text-2xl">Driver Portal</h1>
           <p className="text-sm text-slate-200/80">
-            Please enter your name and select your assigned vehicle to begin
-            your daily inspection.
+            Enter your name and select your assigned vehicle to begin your daily
+            inspection and time clock.
           </p>
         </section>
 
@@ -1083,7 +1052,7 @@ export default function DriverPage() {
           <button
             type="button"
             onClick={handleStartSession}
-            className="btn-primary w-full"
+            className="btn-primary w-full text-sm"
             disabled={
               !driverName.trim() ||
               !selectedVehicleId ||
@@ -1093,7 +1062,7 @@ export default function DriverPage() {
           >
             {loadingDriverLookup
               ? "Checking driver…"
-              : "Continue to inspection options"}
+              : "Continue to driver dashboard"}
           </button>
         </section>
       </div>
@@ -1102,9 +1071,8 @@ export default function DriverPage() {
 
   // 2) Session ready – show inspection selection, form, and history
   return (
-    <div className="space-y-4">
-      {/* Header with game clock */}
-           {/* Header with game clock – mobile-first layout */}
+    <div className="space-y-5">
+      {/* Header with clocks – mobile-first layout */}
       <section className="card flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         {/* Driver + vehicle info */}
         <div className="space-y-1">
@@ -1133,7 +1101,6 @@ export default function DriverPage() {
 
         {/* Clocks + actions */}
         <div className="flex w-full flex-col items-stretch gap-3 md:w-auto md:items-end">
-          {/* On mobile: clocks in a 2-column grid; on desktop: stacked */}
           <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-1">
             {/* Today clock */}
             <div className="rounded-2xl bg-slate-900 px-3 py-2 text-left ring-1 ring-emerald-500/60 md:text-right">
@@ -1175,6 +1142,7 @@ export default function DriverPage() {
         </div>
       </section>
 
+      {/* Pre / Post selection */}
       <section className="grid gap-4 sm:grid-cols-2">
         <button
           type="button"
@@ -1242,14 +1210,14 @@ export default function DriverPage() {
       {/* Active inspection form */}
       <section className="card space-y-4">
         {selectedInspectionType === null ? (
-          <p className="text-xs text-slate-300">
+          <p className="text-xs text-slate-300 sm:text-sm">
             Select <strong>Pre-trip</strong> or <strong>Post-trip</strong> to
             begin. The full checklist will appear here.
           </p>
         ) : (
           <>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
                 <h2 className="text-base font-semibold">
                   {selectedInspectionType === "pre"
                     ? "Pre-trip inspection checklist"
@@ -1333,7 +1301,7 @@ export default function DriverPage() {
             </div>
 
             {/* Checklist */}
-            <div className="space-y-2">
+            <div className="space-y-3">
               {Object.entries(groupedChecklist).map(
                 ([category, itemsInCategory]) => (
                   <div key={category} className="space-y-1.5">
@@ -1346,10 +1314,10 @@ export default function DriverPage() {
                         return (
                           <div
                             key={item.id}
-                            className="flex flex-col gap-2 rounded-lg border-b border-white/5 px-2 py-2 last:border-0 md:flex-row md:items-center md:justify-between md:gap-4 md:border-none md:py-2 hover:bg-slate-900/40"
+                            className="flex flex-col gap-2 rounded-lg border-b border-white/5 px-2 py-2 last:border-0 md:flex-row md:items-center md:justify-between md:gap-4 hover:bg-slate-900/40"
                           >
                             {/* Question Text */}
-                            <p className="text-sm font-medium text-slate-100 md:flex-1 md:text-xs md:font-normal">
+                            <p className="text-[13px] text-slate-100 md:flex-1 md:text-xs">
                               {item.label}
                             </p>
 
@@ -1421,7 +1389,7 @@ export default function DriverPage() {
               type="button"
               onClick={handleSubmitInspection}
               className={`btn-primary w-full text-sm ${
-                !canSubmit ? "opacity-50 cursor-not-allowed" : ""
+                !canSubmit ? "cursor-not-allowed opacity-50" : ""
               }`}
               disabled={!canSubmit}
             >
@@ -1471,7 +1439,7 @@ export default function DriverPage() {
         </div>
 
         {history.length === 0 && !loadingHistory ? (
-          <p className="text-[11px] text-slate-400">
+          <p className="text-[11px] text-slate-400 sm:text-xs">
             Once you submit inspections, they will appear here for up to 90 days
             for audit purposes.
           </p>
@@ -1482,8 +1450,8 @@ export default function DriverPage() {
                 key={rec.id}
                 className="flex items-center justify-between gap-2 rounded-lg bg-slate-900/70 p-2"
               >
-                <div>
-                  <p className="font-semibold text-slate-100">
+                <div className="min-w-0">
+                  <p className="truncate text-[11px] font-semibold text-slate-100">
                     {rec.inspection_type === "pre" ? "Pre-trip" : "Post-trip"} •{" "}
                     {formatDateTime(rec.submitted_at || rec.inspection_date)}
                   </p>
@@ -1494,13 +1462,12 @@ export default function DriverPage() {
                       : "N/A"}
                   </p>
                 </div>
-              <Link
-                href={`/inspection/${rec.id}?from=driver`}
-                className="btn-ghost text-[11px]"
+                <Link
+                  href={`/inspection/${rec.id}?from=driver`}
+                  className="btn-ghost shrink-0 px-3 py-1 text-[11px]"
                 >
-                Open form
-              </Link>
-
+                  Open form
+                </Link>
               </div>
             ))}
           </div>
@@ -1509,4 +1476,3 @@ export default function DriverPage() {
     </div>
   );
 }
-
