@@ -56,7 +56,7 @@ export default function AdminPage() {
   const [accessCodeInput, setAccessCodeInput] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<AdminTab>("drivers");
+  const [activeTab, setActiveTab] = useState<AdminTab>("inspections");
 
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -674,9 +674,10 @@ export default function AdminPage() {
       {/* Tab navigation */}
       <section className="card flex flex-wrap gap-2">
         {([
-          { id: "drivers", label: "Drivers" },
-          { id: "vehicles", label: "Vehicles" },
           { id: "inspections", label: "Inspections" },
+          { id: "vehicles", label: "Vehicles" },
+          { id: "drivers", label: "Drivers" },
+          
         ] as { id: AdminTab; label: string }[]).map((tab) => (
           <button
             key={tab.id}
