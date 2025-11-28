@@ -1392,12 +1392,13 @@ export default function AdminPage() {
                           </td>
                           <td className="px-2 py-1">
                             <Link
-                              href={`/inspection/${rec.id}`}
-                              className="btn-ghost px-2 py-1 text-[11px]"
+                                href={`/inspection/${rec.id}?from=admin-inspections`}
+                                className="btn-ghost px-2 py-1 text-[11px]"
                             >
-                              Open form
+                                Open form
                             </Link>
-                          </td>
+                           </td>
+
                         </tr>
                       ))}
                     </tbody>

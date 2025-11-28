@@ -43,8 +43,29 @@ function formatDateTime(iso: string) {
 export default function InspectionDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const id = (params as { id?: string }).id;
+  const handleBack = () => {
+  if (typeof window !== "undefined") {
+    const params = new URLSearchParams(window.location.search);
+    const from = params.get("from");
 
+    if (from === "admin-inspections") {
+      // Admin came from the Inspections tab
+      router.push("/admin#inspections");
+      return;
+    }
+
+    if (from === "driver") {
+      // Driver came from the Driver Portal history list
+      router.push("/driver");
+      return;
+    }
+  }
+
+  // Fallback: just go back one step in history
+  router.back();
+};
+  
+  const id = (params as { id?: string }).id; 
   const [record, setRecord] = useState<InspectionRecord | null>(null);
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [loading, setLoading] = useState(true);
@@ -122,11 +143,12 @@ export default function InspectionDetailPage() {
           </p>
           <button
             type="button"
-            onClick={() => router.back()}
+            onClick={handleBack}
             className="btn-ghost no-print w-fit text-xs"
-          >
+            >
             ← Go back
           </button>
+
         </section>
       </div>
     );
@@ -156,20 +178,21 @@ export default function InspectionDetailPage() {
       {/* Top controls for screen only */}
       <section className="card no-print flex items-center justify-between">
         <button
-          type="button"
-          onClick={() => router.back()}
-          className="btn-ghost text-xs"
+            type="button"
+            onClick={handleBack}
+            className="btn-ghost text-xs"
         >
-          ← Back
+            ← Back
         </button>
         <button
-          type="button"
-          onClick={() => window.print()}
-          className="btn-primary text-xs"
+            type="button"
+            onClick={() => window.print()}
+            className="btn-primary text-xs"
         >
-          Print / Save as PDF
+            Print / Save as PDF
         </button>
-      </section>
+        </section>
+
 
       {/* Printable inspection form */}
       <section className="mx-auto max-w-3xl rounded-2xl bg-white p-4 text-slate-900 shadow-md print:rounded-none print:shadow-none">

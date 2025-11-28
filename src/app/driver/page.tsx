@@ -1494,12 +1494,13 @@ export default function DriverPage() {
                       : "N/A"}
                   </p>
                 </div>
-                <Link
-                  href={`/inspection/${rec.id}`}
-                  className="btn-ghost text-[11px]"
+              <Link
+                href={`/inspection/${rec.id}?from=driver`}
+                className="btn-ghost text-[11px]"
                 >
-                  Open form
-                </Link>
+                Open form
+              </Link>
+
               </div>
             ))}
           </div>
