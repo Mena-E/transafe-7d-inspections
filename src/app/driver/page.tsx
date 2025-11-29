@@ -1093,11 +1093,11 @@ export default function DriverPage() {
   {/* Instruction text above buttons */}
   <div className="space-y-1">
     <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-      Submit pre-trip to clock in and post-trip to clock out.
+      Pre-trip to clock in; post-trip to clock out.
     </p>
     <p className="text-sm text-slate-200/90">
       Select <span className="font-semibold">Pre-trip</span> or{" "}
-      <span className="font-semibold">Post-trip</span> below to begin your
+      <span className="font-semibold">Post-trip</span> below to do your
       daily inspection.
     </p>
   </div>
