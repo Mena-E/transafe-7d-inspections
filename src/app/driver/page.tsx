@@ -38,20 +38,6 @@ type ChecklistItem = {
 
 type AnswersState = Record<string, AnswerValue | null>;
 
-type InspectionRecord = {
-  id: string;
-  driver_name: string;
-  vehicle_label: string | null;
-  inspection_type: "pre" | "post";
-  shift: string | null;
-  inspection_date: string;
-  submitted_at: string;
-  overall_status: string | null;
-  answers: Record<string, string> | null;
-  signature_name: string;
-  driver_license_number: string | null;
-  odometer_reading: string | null;
-};
 
 type TimeEntry = {
   id: string;
@@ -291,15 +277,6 @@ function AnswerButton({
   );
 }
 
-function formatDateTime(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  })}`;
-}
-
 // Format seconds as HH:MM:SS (e.g. 03:12:05)
 function formatDuration(totalSeconds: number): string {
   const secs = Math.max(0, Math.floor(totalSeconds));
@@ -362,9 +339,6 @@ export default function DriverPage() {
   const [signatureName, setSignatureName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
-
-  const [history, setHistory] = useState<InspectionRecord[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
 
   // Restore previous driver session from localStorage
   useEffect(() => {
@@ -564,35 +538,6 @@ export default function DriverPage() {
     }
     return groups;
   }, [currentChecklist]);
-
-  async function fetchHistoryForDriver(name: string) {
-    if (!name) return;
-    setLoadingHistory(true);
-    try {
-      const since = new Date();
-      since.setDate(since.getDate() - 90);
-
-      const { data, error: histErr } = await supabase
-        .from("inspections")
-        .select("*")
-        .eq("driver_name", name)
-        .gte("submitted_at", since.toISOString())
-        .order("submitted_at", { ascending: false });
-
-      if (histErr) throw histErr;
-      setHistory((data as InspectionRecord[]) || []);
-    } catch (err: any) {
-      console.error(err);
-    } finally {
-      setLoadingHistory(false);
-    }
-  }
-
-  // Load 90-day history after session is ready
-  useEffect(() => {
-    if (!isSessionReady || !driverName.trim()) return;
-    fetchHistoryForDriver(currentDriver?.full_name ?? driverName.trim());
-  }, [isSessionReady, driverName, currentDriver?.full_name]);
 
     const loadTimeForToday = async (driverId: string) => {
     const todayStr = getTodayDateString();
@@ -959,8 +904,6 @@ const handleLogout = () => {
       setSubmitMessage(
         "Inspection submitted successfully. Thank you for completing your daily check.",
       );
-
-      fetchHistoryForDriver(currentDriver?.full_name ?? driverName.trim());
 
       setSelectedInspectionType(null);
       setShift("");
@@ -1486,56 +1429,25 @@ if (!isSessionReady) {
       </section>
 
       {/* 90-day history */}
-      <section className="card space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">
-            Last 90 days – your inspections
+      {/* Inspection history link */}
+      <section className="card flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-100">
+            Inspection history
           </h2>
-          <span className="text-[11px] text-slate-400">
-            {loadingHistory
-              ? "Loading…"
-              : history.length === 0
-                ? "No records"
-                : `${history.length} record${
-                    history.length === 1 ? "" : "s"
-                  }`}
-          </span>
-        </div>
-
-        {history.length === 0 && !loadingHistory ? (
-          <p className="text-[11px] text-slate-400 sm:text-xs">
-            Once you submit inspections, they will appear here for up to 90 days
-            for audit purposes.
+          <p className="text-[11px] text-slate-400">
+            View your submitted pre-trip and post-trip inspections from the last
+            90 days on a separate page.
           </p>
-        ) : (
-          <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl bg-slate-950/40 p-2 text-xs">
-            {history.map((rec) => (
-              <div
-                key={rec.id}
-                className="flex items-center justify-between gap-2 rounded-lg bg-slate-900/70 p-2"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-[11px] font-semibold text-slate-100">
-                    {rec.inspection_type === "pre" ? "Pre-trip" : "Post-trip"} •{" "}
-                    {formatDateTime(rec.submitted_at || rec.inspection_date)}
-                  </p>
-                  <p className="text-[10px] text-slate-400">
-                    Shift: {rec.shift || "N/A"} • Status:{" "}
-                    {rec.overall_status
-                      ? rec.overall_status.toUpperCase()
-                      : "N/A"}
-                  </p>
-                </div>
-                <Link
-                  href={`/inspection/${rec.id}?from=driver`}
-                  className="btn-ghost shrink-0 px-3 py-1 text-[11px]"
-                >
-                  Open form
-                </Link>
-              </div>
-            ))}
-          </div>
-        )}
+        </div>
+        <div className="flex justify-start sm:justify-end">
+          <Link
+            href="/driver/inspections"
+            className="btn-ghost px-3 py-1 text-[11px]"
+          >
+            Open inspection history →
+          </Link>
+        </div>
       </section>
     </div>
   );

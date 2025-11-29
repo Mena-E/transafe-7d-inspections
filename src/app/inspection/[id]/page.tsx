@@ -54,8 +54,14 @@ export default function InspectionDetailPage() {
       return;
     }
 
+    if (from === "driver-history") {
+      // Driver came from the Inspection History page
+      router.push("/driver/inspections");
+      return;
+    }
+
     if (from === "driver") {
-      // Driver came from the Driver Portal history list
+      // (Legacy) driver came from the main Driver Portal
       router.push("/driver");
       return;
     }
@@ -64,6 +70,7 @@ export default function InspectionDetailPage() {
   // Fallback: just go back one step in history
   router.back();
 };
+
   
   const id = (params as { id?: string }).id; 
   const [record, setRecord] = useState<InspectionRecord | null>(null);
