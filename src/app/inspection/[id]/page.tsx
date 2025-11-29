@@ -193,7 +193,6 @@ export default function InspectionDetailPage() {
         </button>
         </section>
 
-
       {/* Printable inspection form */}
       <section className="mx-auto max-w-3xl rounded-2xl bg-white p-4 text-slate-900 shadow-md print:rounded-none print:shadow-none">
         <header className="border-b border-slate-300 pb-2">
@@ -209,7 +208,7 @@ export default function InspectionDetailPage() {
 
         {/* Top meta info */}
         <div className="mt-3 grid gap-2 text-xs text-slate-900 sm:grid-cols-2">
-          <div>
+                    <div>
             <p>
               <span className="font-semibold">Driver name:</span>{" "}
               {record.driver_name}
@@ -219,15 +218,16 @@ export default function InspectionDetailPage() {
               {record.driver_license_number ?? "N/A"}
             </p>
             <p>
-              <span className="font-semibold">Vehicle (year/make/model):</span>{" "}
-              {vehicleLine}
-            </p>
-            <p>
-              <span className="font-semibold">Vehicle label:</span>{" "}
+              <span className="font-semibold">Vehicle ID:</span>{" "}
               {vehicleLabel}
             </p>
             <p>
-              <span className="font-semibold">Plate:</span> {vehiclePlate}
+              <span className="font-semibold">Plate:</span>{" "}
+              {vehiclePlate}
+            </p>
+            <p>
+              <span className="font-semibold">Year/Make/Model:</span>{" "}
+              {vehicleLine}
             </p>
           </div>
           <div>
