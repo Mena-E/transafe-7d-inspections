@@ -307,6 +307,19 @@ export default function DriverTimeLogPage() {
 
   return (
     <div className="space-y-5 max-w-3xl mx-auto">
+      {/* Top back button */}
+      <section className="card flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={handleBackToPortal}
+          className="btn-ghost px-3 py-1 text-xs"
+        >
+          ← Back to Driver Portal
+        </button>
+        <p className="text-[11px] text-slate-400">
+          Review your daily hours and total for this week.
+        </p>
+      </section>
       {/* Header */}
       <section className="card flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
@@ -327,7 +340,7 @@ export default function DriverTimeLogPage() {
         </div>
 
         <div className="flex flex-col items-stretch gap-2 sm:items-end">
-          <div className="rounded-2xl bg-slate-900 px-3 py-2 text-right ring-1 ring-slate-600/70">
+          <div className="rounded-2xl bg-slate-900 px-3 py-2 text-center sm:text-right ring-1 ring-slate-600/70">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
               Total hrs this week
             </p>
@@ -360,13 +373,6 @@ export default function DriverTimeLogPage() {
             </button>
           </div>
 
-          <button
-            type="button"
-            onClick={handleBackToPortal}
-            className="btn-ghost px-3 py-1 text-xs"
-          >
-            ← Back to Driver Portal
-          </button>
         </div>
       </section>
 
