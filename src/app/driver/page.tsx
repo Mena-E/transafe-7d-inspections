@@ -10,6 +10,7 @@ type Driver = {
   full_name: string;
   license_number: string | null;
   is_active: boolean;
+  pin: string | null;       // NEW
   created_at: string;
 };
 
@@ -341,6 +342,7 @@ function getWeekStartDateString(): string {
 export default function DriverPage() {
   const router = useRouter();
   const [driverName, setDriverName] = useState("");
+  const [driverPin, setDriverPin] = useState("");
   const [currentDriver, setCurrentDriver] = useState<Driver | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string>("");
@@ -384,13 +386,15 @@ export default function DriverPage() {
             return;
           }
 
-          setCurrentDriver({
+         setCurrentDriver({
             id: parsed.driverId,
             full_name: parsed.driverName,
             license_number: parsed.licenseNumber,
             is_active: true,
+            pin: null, // we don't know the PIN from localStorage; session is already established
             created_at: "",
           });
+
 
           setDriverName(parsed.driverName);
           if (parsed.vehicleId) {
@@ -662,114 +666,138 @@ export default function DriverPage() {
 
   // ==== SESSION HANDLERS ====
 
-  const handleStartSession = async () => {
-    const normalizeName = (name: string) =>
-      name.trim().replace(/\s+/g, " ");
+const handleStartSession = async () => {
+  const normalizeName = (name: string) =>
+    name.trim().replace(/\s+/g, " ");
 
-    const inputName = normalizeName(driverName);
+  const inputName = normalizeName(driverName);
 
-    if (!inputName || !selectedVehicleId) {
-      setError("Please enter your name and select a vehicle.");
+  if (!inputName || !selectedVehicleId) {
+    setError("Please enter your name, PIN, and select a vehicle.");
+    return;
+  }
+
+  if (!driverPin.trim()) {
+    setError("Please enter your PIN.");
+    return;
+  }
+
+  setError(null);
+  setSubmitMessage(null);
+  setLoadingDriverLookup(true);
+
+  try {
+    const { data, error: drvErr } = await supabase
+      .from("drivers")
+      .select("*")
+      .ilike("full_name", inputName)
+      .eq("is_active", true)
+      .order("created_at", { ascending: true });
+
+    if (drvErr) throw drvErr;
+
+    if (!data || data.length === 0) {
+      setError(
+        "No active driver found with that name. Please contact your admin to register you.",
+      );
+      setLoadingDriverLookup(false);
       return;
     }
 
-    setError(null);
-    setSubmitMessage(null);
-    setLoadingDriverLookup(true);
+    const driver = data[0] as Driver;
 
-    try {
-      const { data, error: drvErr } = await supabase
-        .from("drivers")
-        .select("*")
-        .ilike("full_name", inputName)
-        .eq("is_active", true)
-        .order("created_at", { ascending: true });
-
-      if (drvErr) throw drvErr;
-
-      if (!data || data.length === 0) {
-        setError(
-          "No active driver found with that name. Please contact your admin to register you.",
-        );
-        setLoadingDriverLookup(false);
-        return;
-      }
-
-      const driver = data[0] as Driver;
-      setCurrentDriver(driver);
-
-      // Persist session
-      if (typeof window !== "undefined") {
-        const sessionPayload = {
-          driverId: driver.id,
-          driverName: driver.full_name,
-          licenseNumber: driver.license_number,
-          vehicleId: selectedVehicleId,
-        };
-
-        window.localStorage.setItem(
-          "transafeDriverSession",
-          JSON.stringify(sessionPayload),
-        );
-
-        window.localStorage.setItem("transafeDriverId", driver.id);
-        window.localStorage.setItem("transafeDriverName", driver.full_name);
-
-        const recentPayload = {
-          driverName: driver.full_name,
-          vehicleId: selectedVehicleId,
-        };
-        window.localStorage.setItem(
-          "transafeRecentDriver",
-          JSON.stringify(recentPayload),
-        );
-      }
-
-      setIsSessionReady(true);
-      setSelectedInspectionType(null);
-      setShift("");
-      setOdometer("");
-      setAnswers({});
-      setNotes("");
-      setSignatureName("");
-    } catch (err: any) {
-      console.error(err);
+    // NEW: enforce that this driver has a PIN set
+    if (!driver.pin || driver.pin.trim() === "") {
       setError(
-        err?.message ??
-          "Failed to look up driver. Please check your name spelling or contact admin.",
+        "This driver does not have a PIN set yet. Please contact your admin.",
       );
-    } finally {
       setLoadingDriverLookup(false);
+      return;
     }
-  };
 
-  const handleLogout = () => {
-    setIsSessionReady(false);
-    setCurrentDriver(null);
-    setDriverName("");
-    setSelectedVehicleId("");
+    // NEW: compare entered PIN with stored PIN
+    if (driver.pin.trim() !== driverPin.trim()) {
+      // generic error so attackers can't tell which field is wrong
+      setError("Name, vehicle, or PIN is incorrect.");
+      setLoadingDriverLookup(false);
+      return;
+    }
+
+    setCurrentDriver(driver);
+
+    // Persist session
+    if (typeof window !== "undefined") {
+      const sessionPayload = {
+        driverId: driver.id,
+        driverName: driver.full_name,
+        licenseNumber: driver.license_number,
+        vehicleId: selectedVehicleId,
+      };
+
+      window.localStorage.setItem(
+        "transafeDriverSession",
+        JSON.stringify(sessionPayload),
+      );
+
+      window.localStorage.setItem("transafeDriverId", driver.id);
+      window.localStorage.setItem("transafeDriverName", driver.full_name);
+
+      const recentPayload = {
+        driverName: driver.full_name,
+        vehicleId: selectedVehicleId,
+      };
+      window.localStorage.setItem(
+        "transafeRecentDriver",
+        JSON.stringify(recentPayload),
+      );
+    }
+
+    setIsSessionReady(true);
     setSelectedInspectionType(null);
     setShift("");
     setOdometer("");
     setAnswers({});
     setNotes("");
     setSignatureName("");
-    setSubmitMessage(null);
-    setError(null);
+  } catch (err: any) {
+    console.error(err);
+    setError(
+      err?.message ??
+        "Failed to look up driver. Please check your name spelling or contact admin.",
+    );
+  } finally {
+    setLoadingDriverLookup(false);
+  }
+};
 
-    setClockBaseSeconds(0);
-    setActiveSince(null);
-    setDisplaySeconds(0);
+const handleLogout = () => {
+  setIsSessionReady(false);
+  setCurrentDriver(null);
+  setDriverName("");
+  setDriverPin("");       // NEW: clear PIN
+  setSelectedVehicleId("");
+  setSelectedInspectionType(null);
+  setShift("");
+  setOdometer("");
+  setAnswers({});
+  setNotes("");
+  setSignatureName("");
+  setSubmitMessage(null);
+  setError(null);
 
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem("transafeDriverId");
-      window.localStorage.removeItem("transafeDriverName");
-      window.localStorage.removeItem("transafeDriverSession");
-      // NOTE: we keep transafeRecentDriver on purpose to prefill next time
-    }
+  setClockBaseSeconds(0);
+  setActiveSince(null);
+  setDisplaySeconds(0);
 
-    router.push("/");
-  };
+  if (typeof window !== "undefined") {
+    window.localStorage.removeItem("transafeDriverId");
+    window.localStorage.removeItem("transafeDriverName");
+    window.localStorage.removeItem("transafeDriverSession");
+    // NOTE: we keep transafeRecentDriver on purpose to prefill next time
+  }
+
+  router.push("/");
+};
 
   const updateAnswer = (itemId: string, value: AnswerValue) => {
     setAnswers((prev) => ({
@@ -948,85 +976,118 @@ export default function DriverPage() {
     }
   };
 
-  // 1) Pre-session: enter name + select vehicle
-  if (!isSessionReady) {
-    return (
-      <div className="space-y-4 max-w-md mx-auto">
-        <section className="card space-y-2 text-center sm:text-left">
-          <h1 className="text-xl font-semibold sm:text-2xl">Driver Portal</h1>
-          <p className="text-sm text-slate-200/80">
-            Enter your name and select your assigned vehicle to begin your daily
-            inspection and time clock.
+// 1) Pre-session: enter name + PIN + select vehicle
+if (!isSessionReady) {
+  return (
+    <div className="space-y-4 max-w-md mx-auto">
+      <section className="card space-y-2 text-center sm:text-left">
+        <h1 className="text-xl font-semibold sm:text-2xl">Driver Portal</h1>
+        <p className="text-sm text-slate-200/80">
+          Enter your name, PIN, and select your assigned vehicle to begin your
+          daily inspection and time clock.
+        </p>
+      </section>
+
+      {error && (
+        <section className="card border border-red-500/50 bg-red-950/40">
+          <p className="text-xs font-medium text-red-200">{error}</p>
+        </section>
+      )}
+
+      <section className="card space-y-4">
+        {/* Name */}
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-slate-100">
+            Your full name
+          </label>
+          <input
+            type="text"
+            value={driverName}
+            onChange={(e) => setDriverName(e.target.value)}
+            className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+            placeholder="e.g. John Doe"
+          />
+          <p className="text-[11px] text-slate-400">
+            Must match how your name is entered by the admin (e.g. &quot;Julio
+            Duarte&quot;).
           </p>
-        </section>
+        </div>
 
-        {error && (
-          <section className="card border border-red-500/50 bg-red-950/40">
-            <p className="text-xs font-medium text-red-200">{error}</p>
-          </section>
-        )}
+        {/* PIN */}
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-slate-100">
+            Driver PIN
+          </label>
+          <input
+            id="driverPin"
+            type="password"
+            inputMode="numeric"
+            autoComplete="off"
+            value={driverPin}
+            onChange={(e) => setDriverPin(e.target.value)}
+            className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+            placeholder="4–6 digit PIN"
+          />
+          <p className="text-[11px] text-slate-400">
+            This is your personal secret code. Do not share it with anyone.
+          </p>
+        </div>
 
-        <section className="card space-y-4">
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-slate-100">
-              Your full name
-            </label>
-            <input
-              type="text"
-              value={driverName}
-              onChange={(e) => setDriverName(e.target.value)}
-              className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-              placeholder="e.g. John Doe"
-            />
-            <p className="text-[11px] text-slate-400">
-              Must match how your name is entered by the admin (e.g. &quot;Julio
-              Duarte&quot;).
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-slate-100">
-              Assigned vehicle
-            </label>
-            <select
-              value={selectedVehicleId}
-              onChange={(e) => setSelectedVehicleId(e.target.value)}
-              className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-            >
-              <option value="">
-                {loadingVehicles ? "Loading vehicles..." : "Select a vehicle"}
-              </option>
-              {vehicles.map((vehicle) => (
-                <option key={vehicle.id} value={vehicle.id}>
-                  {vehicle.label}
-                </option>
-              ))}
-            </select>
-            <p className="text-[11px] text-slate-400">
-              If your vehicle is missing, ask your admin to add it in the Admin
-              Portal.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleStartSession}
-            className="btn-primary w-full text-sm"
-            disabled={
-              !driverName.trim() ||
-              !selectedVehicleId ||
-              loadingVehicles ||
-              loadingDriverLookup
-            }
+        {/* Vehicle – disabled until PIN is entered */}
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-slate-100">
+            Assigned vehicle
+          </label>
+          <select
+            value={selectedVehicleId}
+            onChange={(e) => setSelectedVehicleId(e.target.value)}
+            disabled={!driverPin.trim() || loadingVehicles}
+            className={`w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2 ${
+              !driverPin.trim() || loadingVehicles
+                ? "cursor-not-allowed opacity-60"
+                : ""
+            }`}
           >
-            {loadingDriverLookup
-              ? "Checking driver…"
-              : "Continue to driver dashboard"}
-          </button>
-        </section>
-      </div>
-    );
-  }
+            <option value="">
+              {!driverPin.trim()
+                ? "Enter your PIN to unlock vehicles"
+                : loadingVehicles
+                  ? "Loading vehicles..."
+                  : "Select a vehicle"}
+            </option>
+            {vehicles.map((vehicle) => (
+              <option key={vehicle.id} value={vehicle.id}>
+                {vehicle.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-[11px] text-slate-400">
+            You must enter your PIN before choosing a vehicle. If your vehicle
+            is missing, ask your admin to add it in the Admin Portal.
+          </p>
+        </div>
+
+        {/* Login button */}
+        <button
+          type="button"
+          onClick={handleStartSession}
+          className="btn-primary w-full text-sm"
+          disabled={
+            !driverName.trim() ||
+            !driverPin.trim() || // require PIN
+            !selectedVehicleId ||
+            loadingVehicles ||
+            loadingDriverLookup
+          }
+        >
+          {loadingDriverLookup
+            ? "Checking driver…"
+            : "Continue to driver dashboard"}
+        </button>
+      </section>
+    </div>
+  );
+}
 
   // 2) Session ready – show inspection selection, form, and history
   return (
