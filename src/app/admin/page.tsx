@@ -10,6 +10,7 @@ type Driver = {
   full_name: string;
   license_number: string | null;
   is_active: boolean;
+  pin: string | null;        // NEW
   created_at: string;
 };
 
@@ -408,6 +409,56 @@ export default function AdminPage() {
         err.message ??
           "Failed to delete driver. Check if they are referenced elsewhere.",
       );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+    const handleSetDriverPin = async (driver: Driver) => {
+    const newPin = window.prompt(
+      `Enter a new PIN for ${driver.full_name} (4–6 digits).\nLeave blank to cancel.`
+    );
+
+    // User clicked "Cancel"
+    if (newPin === null) return;
+
+    const trimmed = newPin.trim();
+
+    // Empty input – treat as cancel
+    if (!trimmed) {
+      return;
+    }
+
+    // Basic validation: numeric, 4–6 digits
+    const pinRegex = /^[0-9]{4,6}$/;
+    if (!pinRegex.test(trimmed)) {
+      alert("PIN must be 4–6 digits (numbers only).");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { error: updateErr } = await supabase
+        .from("drivers")
+        .update({ pin: trimmed })
+        .eq("id", driver.id);
+
+      if (updateErr) throw updateErr;
+
+      // Update local state so UI reflects new PIN
+      setDrivers((prev) =>
+        prev.map((d) =>
+          d.id === driver.id ? { ...d, pin: trimmed } : d,
+        ),
+      );
+
+      alert(`PIN updated for ${driver.full_name}.`);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message ?? "Failed to update driver PIN.");
+      alert("Failed to update PIN. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -853,7 +904,7 @@ export default function AdminPage() {
                             Status: {driver.is_active ? "Active" : "Inactive"}
                           </p>
                         </div>
-                        <div className="flex flex-col gap-1">
+                                                <div className="flex flex-col gap-1">
                           <button
                             type="button"
                             onClick={() =>
@@ -873,6 +924,14 @@ export default function AdminPage() {
                             disabled={loading}
                           >
                             {driver.is_active ? "Deactivate" : "Activate"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSetDriverPin(driver)}
+                            className="btn-ghost px-3 py-1 text-[11px]"
+                            disabled={loading}
+                          >
+                            Set / Reset PIN
                           </button>
                           <button
                             type="button"
