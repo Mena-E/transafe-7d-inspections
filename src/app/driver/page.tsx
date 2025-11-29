@@ -1109,15 +1109,26 @@ if (!isSessionReady) {
           <p className="text-xs text-slate-300">
             License #: {currentDriver?.license_number ?? "N/A"}
           </p>
-          <p className="mt-1 text-sm font-medium text-slate-100">
-            Vehicle: {vehicleMainLine}
-          </p>
-          {selectedVehicle && (
-            <p className="text-xs text-slate-300">
-              Label: {selectedVehicle.label} • Plate:{" "}
-              {selectedVehicle.plate || "N/A"}
+                     {selectedVehicle ? (
+            <>
+              <p className="mt-1 text-sm font-semibold text-emerald-200">
+                Vehicle ID: {selectedVehicle.label}
+              </p>
+              <p className="text-xs font-medium text-slate-100">
+                Plate: {selectedVehicle.plate || "N/A"}
+              </p>
+              {vehicleMainLine && (
+                <p className="text-[11px] text-slate-400">
+                  Year/Make/Model: {vehicleMainLine}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="mt-1 text-sm font-medium text-slate-100">
+              Vehicle: {vehicleMainLine}
             </p>
           )}
+
         </div>
 
         {/* Today clock + actions */}
@@ -1275,18 +1286,29 @@ if (!isSessionReady) {
                     {currentDriver?.license_number ?? "N/A"}
                   </span>
                 </p>
-                {selectedVehicle && (
-                  <p className="text-[11px] text-slate-400">
-                    Vehicle:{" "}
-                    <span className="font-semibold text-slate-100">
-                      {selectedVehicle.year ?? ""}{" "}
-                      {selectedVehicle.make ?? ""}{" "}
-                      {selectedVehicle.model ?? ""}
-                    </span>{" "}
-                    (Label: {selectedVehicle.label || "N/A"}, Plate:{" "}
-                    {selectedVehicle.plate || "N/A"})
-                  </p>
+                  {selectedVehicle && (
+                  <>
+                    <p className="text-[11px] text-slate-400">
+                      Vehicle ID:{" "}
+                      <span className="font-semibold text-slate-100">
+                        {selectedVehicle.label || "N/A"}
+                      </span>{" "}
+                      • Plate:{" "}
+                      <span className="font-semibold text-slate-100">
+                        {selectedVehicle.plate || "N/A"}
+                      </span>
+                    </p>
+                    <p className="text-[11px] text-slate-400">
+                      Year/Make/Model:{" "}
+                      <span className="font-semibold text-slate-100">
+                        {selectedVehicle.year ?? ""}{" "}
+                        {selectedVehicle.make ?? ""}{" "}
+                        {selectedVehicle.model ?? ""}
+                      </span>
+                    </p>
+                  </>
                 )}
+
               </div>
 
               <div className="flex gap-2 text-[11px]">
