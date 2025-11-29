@@ -1132,8 +1132,8 @@ if (!isSessionReady) {
         </div>
 
         {/* Today clock + actions */}
-        <div className="flex w-full flex-col items-stretch gap-3 md:w-auto md:items-end">
-          <div className="rounded-2xl bg-slate-900 px-3 py-2 text-left ring-1 ring-emerald-500/60 md:text-right">
+        <div className="flex w-full flex-col items-center gap-3 md:w-auto md:items-end">
+          <div className="rounded-2xl bg-slate-900 px-3 py-2 text-center md:text-right ring-1 ring-emerald-500/60">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
               Today&apos;s clock
             </p>
