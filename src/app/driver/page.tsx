@@ -1089,55 +1089,90 @@ export default function DriverPage() {
       </section>
 
       {/* Pre / Post selection */}
-      <section className="grid gap-4 sm:grid-cols-2">
-        <button
-          type="button"
-          onClick={() => {
-            setSelectedInspectionType("pre");
-            setShift("");
-            setOdometer("");
-            setAnswers({});
-            setNotes("");
-            setSignatureName("");
-            setSubmitMessage(null);
-          }}
-          className={`card text-left transition ${
-            selectedInspectionType === "pre" ? "ring-2 ring-emerald-500" : ""
-          }`}
-        >
-          <h2 className="mb-1 text-base font-semibold">
-            Start <span className="text-emerald-300">Pre-trip</span> inspection
-          </h2>
-          <p className="text-sm text-slate-200/80">
-            Complete the full pre-trip checklist before you leave your first
-            pickup or the school.
-          </p>
-        </button>
+     <section className="space-y-3">
+  {/* Instruction text above buttons */}
+  <div className="space-y-1">
+    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+      Submit pre-trip to clock in and post-trip to clock out.
+    </p>
+    <p className="text-sm text-slate-200/90">
+      Select <span className="font-semibold">Pre-trip</span> or{" "}
+      <span className="font-semibold">Post-trip</span> below to begin your
+      daily inspection.
+    </p>
+  </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            setSelectedInspectionType("post");
-            setShift("");
-            setOdometer("");
-            setAnswers({});
-            setNotes("");
-            setSignatureName("");
-            setSubmitMessage(null);
-          }}
-          className={`card text-left transition ${
-            selectedInspectionType === "post" ? "ring-2 ring-emerald-500" : ""
-          }`}
-        >
-          <h2 className="mb-1 text-base font-semibold">
-            Start <span className="text-emerald-300">Post-trip</span> inspection
-          </h2>
-          <p className="text-sm text-slate-200/80">
-            Complete the post-trip checklist after you finish your last drop and
-            secure the vehicle.
-          </p>
-        </button>
-      </section>
+  {/* Buttons laid out side by side */}
+  <div className="grid gap-4 sm:grid-cols-2">
+    {/* PRE-TRIP CARD */}
+    <button
+      type="button"
+      onClick={() => {
+        setSelectedInspectionType("pre");
+        setShift("");
+        setOdometer("");
+        setAnswers({});
+        setNotes("");
+        setSignatureName("");
+        setSubmitMessage(null);
+      }}
+      className={`group relative flex h-full flex-col justify-between rounded-2xl border px-4 py-3 text-left shadow-sm transition active:scale-[0.97] ${
+        selectedInspectionType === "pre"
+          ? "border-emerald-500/80 bg-emerald-900/30 shadow-lg"
+          : "border-white/10 bg-slate-950/60 hover:border-emerald-400/70 hover:bg-slate-900/80"
+      }`}
+    >
+      <div className="space-y-1.5">
+        <p className="inline-flex items-center rounded-full bg-emerald-500/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-200">
+          Pre-trip
+        </p>
+        <h2 className="text-base font-semibold text-slate-50">
+          Start your <span className="text-emerald-300">Pre-trip</span> inspection
+        </h2>
+        <p className="text-sm text-slate-300">
+          Complete the full checklist before you start driving to start your route.
+        </p>
+      </div>
+      <p className="mt-3 text-xs font-semibold text-emerald-300 group-hover:text-emerald-200">
+        Tap to begin →
+      </p>
+    </button>
+
+    {/* POST-TRIP CARD */}
+    <button
+      type="button"
+      onClick={() => {
+        setSelectedInspectionType("post");
+        setShift("");
+        setOdometer("");
+        setAnswers({});
+        setNotes("");
+        setSignatureName("");
+        setSubmitMessage(null);
+      }}
+      className={`group relative flex h-full flex-col justify-between rounded-2xl border px-4 py-3 text-left shadow-sm transition active:scale-[0.97] ${
+        selectedInspectionType === "post"
+          ? "border-emerald-500/80 bg-emerald-900/30 shadow-lg"
+          : "border-white/10 bg-slate-950/60 hover:border-emerald-400/70 hover:bg-slate-900/80"
+      }`}
+    >
+      <div className="space-y-1.5">
+        <p className="inline-flex items-center rounded-full bg-slate-500/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-200">
+          Post-trip
+        </p>
+        <h2 className="text-base font-semibold text-slate-50">
+          Start your <span className="text-emerald-300">Post-trip</span> inspection
+        </h2>
+        <p className="text-sm text-slate-300">
+          Finish your route, check every seat and the exterior, then secure the vehicle.
+        </p>
+      </div>
+      <p className="mt-3 text-xs font-semibold text-emerald-300 group-hover:text-emerald-200">
+        Tap to begin →
+      </p>
+    </button>
+  </div>
+</section>
 
       {error && (
         <section className="card border border-red-500/50 bg-red-950/40">
