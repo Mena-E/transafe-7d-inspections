@@ -893,18 +893,33 @@ export default function AdminPage() {
                     >
                       {/* Collapsed header */}
                       <div className="flex items-center justify-between gap-2">
-                        <div>
+                                              <div>
                           <p className="text-sm font-semibold text-slate-100">
                             {driver.full_name}
                           </p>
                           <p className="text-[10px] text-slate-400">
                             License: {driver.license_number || "N/A"}
                           </p>
-                          <p className="text-[10px] text-slate-500">
+
+                          {/* NEW: PIN status badge */}
+                          <p className="mt-0.5 text-[10px]">
+                            {driver.pin ? (
+                              <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-200 ring-1 ring-emerald-500/40">
+                                PIN set
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-200 ring-1 ring-amber-500/40">
+                                PIN not set
+                              </span>
+                            )}
+                          </p>
+
+                          <p className="mt-0.5 text-[10px] text-slate-500">
                             Status: {driver.is_active ? "Active" : "Inactive"}
                           </p>
                         </div>
-                                                <div className="flex flex-col gap-1">
+
+                        <div className="flex flex-col gap-1">
                           <button
                             type="button"
                             onClick={() =>
