@@ -1076,9 +1076,10 @@ if (!isSessionReady) {
         {/* Today clock + logout */}
         <div className="flex w-full flex-col gap-3 md:w-auto md:items-end">
           <div className="w-full rounded-2xl bg-slate-900 px-3 py-2 text-center md:text-right ring-1 ring-emerald-500/60">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
-              Today&apos;s clock
+             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
+              Today&apos;s hours
             </p>
+
             <p className="font-mono text-lg font-semibold text-emerald-300">
               {formatDuration(displaySeconds)}
             </p>
