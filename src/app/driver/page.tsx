@@ -1035,8 +1035,8 @@ if (!isSessionReady) {
   // 2) Session ready – show inspection selection, form, and history
   return (
     <div className="space-y-5">
-      {/* Header with clocks – mobile-first layout */}
-           {/* Header with live clock – mobile-first layout */}
+
+       {/* Header with live clock – mobile-first layout */}
       <section className="card flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         {/* Driver + vehicle info */}
         <div className="space-y-1">
@@ -1052,7 +1052,7 @@ if (!isSessionReady) {
           <p className="text-xs text-slate-300">
             License #: {currentDriver?.license_number ?? "N/A"}
           </p>
-                     {selectedVehicle ? (
+          {selectedVehicle ? (
             <>
               <p className="mt-1 text-sm font-semibold text-emerald-200">
                 Vehicle ID: {selectedVehicle.label}
@@ -1071,10 +1071,9 @@ if (!isSessionReady) {
               Vehicle: {vehicleMainLine}
             </p>
           )}
-
         </div>
 
-        {/* Today clock + actions */}
+        {/* Today clock + logout */}
         <div className="flex w-full flex-col gap-3 md:w-auto md:items-end">
           <div className="w-full rounded-2xl bg-slate-900 px-3 py-2 text-center md:text-right ring-1 ring-emerald-500/60">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
@@ -1085,22 +1084,42 @@ if (!isSessionReady) {
             </p>
           </div>
 
-          <div className="flex w-full justify-start gap-2 md:justify-end">
-            <Link
-              href="/driver/time-log"
-              className="btn-ghost flex-1 px-3 py-1 text-xs md:flex-none md:text-[11px]"
-            >
-              Time log
-            </Link>
+          <div className="flex w-full justify-end">
             <button
               type="button"
               onClick={handleLogout}
-              className="btn-ghost flex-1 px-3 py-1 text-xs md:flex-none md:text-[11px]"
+              className="btn-ghost w-full px-3 py-1 text-xs md:w-auto md:text-[11px]"
             >
               Log out
             </button>
           </div>
         </div>
+      </section>
+
+          {/* One-tap navigation row – mobile friendly */}
+      <section className="card px-2 py-2">
+        <nav className="grid grid-cols-3 gap-2 text-xs sm:text-sm">
+          <Link
+            href="/driver/time-log"
+            className="flex items-center justify-center rounded-xl bg-slate-900 px-3 py-2 font-semibold text-slate-100 ring-1 ring-white/10 hover:bg-slate-800 active:scale-[0.97]"
+          >
+            Time Log
+          </Link>
+
+          <Link
+            href="/driver/inspections"
+            className="flex items-center justify-center rounded-xl bg-slate-900 px-3 py-2 font-semibold text-slate-100 ring-1 ring-white/10 hover:bg-slate-800 active:scale-[0.97]"
+          >
+            Inspections History
+          </Link>
+
+          <Link
+            href="/driver/help"
+            className="flex items-center justify-center rounded-xl bg-slate-900 px-3 py-2 font-semibold text-slate-100 ring-1 ring-white/10 hover:bg-slate-800 active:scale-[0.97]"
+          >
+            Help
+          </Link>
+        </nav>
       </section>
 
       {/* Pre / Post selection */}
