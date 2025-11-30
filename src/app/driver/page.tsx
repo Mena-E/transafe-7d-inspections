@@ -1446,28 +1446,6 @@ if (!isSessionReady) {
           </>
         )}
       </section>
-
-      {/* 90-day history */}
-      {/* Inspection history link */}
-      <section className="card flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-100">
-            Inspection history
-          </h2>
-          <p className="text-[11px] text-slate-400">
-            View your submitted pre-trip and post-trip inspections from the last
-            90 days on a separate page.
-          </p>
-        </div>
-        <div className="flex justify-start sm:justify-end">
-          <Link
-            href="/driver/inspections"
-            className="btn-ghost px-3 py-1 text-[11px]"
-          >
-            Open inspection history →
-          </Link>
-        </div>
-      </section>
     </div>
   );
 }
