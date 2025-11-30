@@ -77,13 +77,13 @@ type DriverTimeSummary = {
   weekTotalSeconds: number;
 };
 
-const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+// Seven-day week: Sunday–Saturday
+const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-
-function getMondayOfWeek(date: Date): Date {
-  const day = date.getDay(); // 0 (Sun) - 6 (Sat)
-  const diff = (day + 6) % 7; // 0 for Mon, 1 for Tue, ..., 6 for Sun
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate() - diff);
+function getWeekStart(date: Date): Date {
+  // Use Sunday as the start of the week
+  const day = date.getDay(); // 0 (Sun) – 6 (Sat)
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() - day);
 }
 
 function formatYMD(d: Date): string {
@@ -1501,39 +1501,40 @@ export default function AdminPage() {
 // ---------- TIMECARDS ADMIN SECTION ----------
 
 function TimecardsAdminSection({ drivers }: { drivers: Driver[] }) {
-  // Monday for the currently selected week, stored as YYYY-MM-DD
-  const [weekStart, setWeekStart] = useState<string>(() => {
-    const monday = getMondayOfWeek(new Date());
-    return formatYMD(monday);
-  });
-
+  // Local state for this section
   const [summaries, setSummaries] = useState<DriverTimeSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Mon–Fri dates for the current weekStart
-  const weekDays = useMemo(() => {
-    const monday = new Date(`${weekStart}T00:00:00`);
-    if (Number.isNaN(monday.getTime())) return [];
+  // Start of the currently selected week (Sunday)
+  const [weekStart, setWeekStart] = useState<string>(() => {
+    const start = getWeekStart(new Date());
+    return formatYMD(start);
+  });
 
-    const days: { date: string; pretty: string; label: string }[] = [];
+// Sun–Sat dates for the current weekStart
+const weekDays = useMemo(() => {
+  const start = new Date(`${weekStart}T00:00:00`);
+  if (Number.isNaN(start.getTime())) return [];
 
-    for (let i = 0; i < 5; i += 1) {
-      const d = new Date(
-        monday.getFullYear(),
-        monday.getMonth(),
-        monday.getDate() + i,
-      );
+  const days: { date: string; pretty: string; label: string }[] = [];
 
-      days.push({
-        date: formatYMD(d),         // YYYY-MM-DD
-        pretty: formatPretty(d),    // e.g. "Nov 24"
-        label: WEEKDAY_LABELS[i],   // "Mon", "Tue", ...
-      });
-    }
+  for (let i = 0; i < 7; i += 1) {
+    const d = new Date(
+      start.getFullYear(),
+      start.getMonth(),
+      start.getDate() + i,
+    );
 
-    return days;
-  }, [weekStart]);
+    days.push({
+      date: formatYMD(d),       // YYYY-MM-DD
+      pretty: formatPretty(d),  // e.g. "Nov 24"
+      label: WEEKDAY_LABELS[i], // "Sun", "Mon", ..., "Sat"
+    });
+  }
+
+  return days;
+}, [weekStart]);
 
   const weekPrettyRange = useMemo(() => {
     if (weekDays.length === 0) return "";
@@ -1628,19 +1629,19 @@ function TimecardsAdminSection({ drivers }: { drivers: Driver[] }) {
     load();
   }, [drivers, weekDays]);
 
-  // Move backwards/forwards by whole weeks
-  const handleShiftWeek = (deltaWeeks: number) => {
-    const current = new Date(`${weekStart}T00:00:00`);
-    if (Number.isNaN(current.getTime())) return;
+ // Move backwards/forwards by whole weeks
+const handleShiftWeek = (deltaWeeks: number) => {
+  const current = new Date(`${weekStart}T00:00:00`);
+  if (Number.isNaN(current.getTime())) return;
 
-    const newDate = new Date(
-      current.getFullYear(),
-      current.getMonth(),
-      current.getDate() + deltaWeeks * 7,
-    );
-    const monday = getMondayOfWeek(newDate);
-    setWeekStart(formatYMD(monday));
-  };
+  const shifted = new Date(
+    current.getFullYear(),
+    current.getMonth(),
+    current.getDate() + deltaWeeks * 7,
+  );
+  const start = getWeekStart(shifted);
+  setWeekStart(formatYMD(start));
+};
 
   return (
     <div className="space-y-4">
@@ -1652,7 +1653,7 @@ function TimecardsAdminSection({ drivers }: { drivers: Driver[] }) {
               Driver Timecards
             </h2>
             <p className="text-sm text-slate-300">
-              Live daily and weekly hours for each driver, Monday to Friday.
+               Live daily and weekly hours for each driver, Sunday to Saturday.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -1678,7 +1679,7 @@ function TimecardsAdminSection({ drivers }: { drivers: Driver[] }) {
           <span className="font-semibold text-slate-100">
             {weekPrettyRange}
           </span>{" "}
-          (Mon–Fri)
+          (Sun–Sat)
         </p>
       </section>
 

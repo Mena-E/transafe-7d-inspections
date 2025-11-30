@@ -1,16 +1,10 @@
+// src/app/admin/timecards/[driverId]/[weekStart]/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter, useParams } from "next/navigation";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-
-type Driver = {
-  id: string;
-  full_name: string;
-  license_number: string | null;
-  is_active: boolean;
-  created_at: string;
-};
 
 type TimeEntry = {
   id: string;
@@ -21,8 +15,20 @@ type TimeEntry = {
   duration_seconds: number | null;
 };
 
-function formatDuration(seconds: number): string {
-  const secs = Math.max(0, Math.floor(seconds));
+type Driver = {
+  id: string;
+  full_name: string;
+  license_number: string | null;
+};
+
+type DaySummary = {
+  date: string;
+  entries: TimeEntry[];
+  totalSeconds: number;
+};
+
+function formatDuration(totalSeconds: number): string {
+  const secs = Math.max(0, Math.floor(totalSeconds));
   const h = Math.floor(secs / 3600);
   const m = Math.floor((secs % 3600) / 60);
   const s = secs % 60;
@@ -32,155 +38,180 @@ function formatDuration(seconds: number): string {
   )}:${String(s).padStart(2, "0")}`;
 }
 
-function formatPretty(d: Date): string {
-  return d.toLocaleDateString(undefined, {
+function formatDateNice(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const date = new Date(y, (m ?? 1) - 1, d ?? 1);
+  return date.toLocaleDateString(undefined, {
+    weekday: "short",
     month: "short",
     day: "numeric",
   });
 }
 
-function formatYMD(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const da = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${da}`;
+function formatTime(iso: string | null): string {
+  if (!iso) return "--:--";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "--:--";
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-const WEEKDAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+function formatWeekRangeLabelFromYMD(weekStartYmd: string): string {
+  const [y, m, d] = weekStartYmd.split("-").map(Number);
+  const sunday = new Date(y, (m ?? 1) - 1, d ?? 1);
+  const saturday = new Date(
+    sunday.getFullYear(),
+    sunday.getMonth(),
+    sunday.getDate() + 6,
+  );
 
-export default function TimecardDetailPage() {
+  const startStr = sunday.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+  const endStr = saturday.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+
+  return `${startStr} – ${endStr}`;
+}
+
+function getWeekEndYmdFromStart(weekStartYmd: string): string {
+  const [y, m, d] = weekStartYmd.split("-").map(Number);
+  const sunday = new Date(y, (m ?? 1) - 1, d ?? 1);
+  const saturday = new Date(
+    sunday.getFullYear(),
+    sunday.getMonth(),
+    sunday.getDate() + 6,
+  );
+  const yy = saturday.getFullYear();
+  const mm = String(saturday.getMonth() + 1).padStart(2, "0");
+  const dd = String(saturday.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+export default function AdminDriverTimecardDetailPage() {
   const router = useRouter();
+  const params = useParams<{ driverId: string; weekStart: string }>();
 
-  // ✅ Read route params with useParams (works in "use client" page)
-  const params = useParams<{
-    driverId?: string;
-    weekStart?: string;
-  }>();
-
-  const driverId = (params?.driverId as string) || "";
-  const weekStartParam = (params?.weekStart as string) || "";
+  const driverId = params.driverId;
+  const weekStartYmd = params.weekStart;
 
   const [driver, setDriver] = useState<Driver | null>(null);
   const [entries, setEntries] = useState<TimeEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Build Mon–Fri week from the weekStart param we get from the URL
-    const weekDays = useMemo(() => {
-    if (!weekStartParam) return [];
-
-    // ✅ Parse "YYYY-MM-DD" as a local date (not UTC) to avoid shifting a day
-    const parts = weekStartParam.split("-");
-    if (parts.length !== 3) return [];
-
-    const [yearStr, monthStr, dayStr] = parts;
-    const year = Number(yearStr);
-    const month = Number(monthStr);
-    const day = Number(dayStr);
-
-    if (!year || !month || !day) return [];
-
-    // This is the Monday of the week, in local time
-    const monday = new Date(year, month - 1, day);
-
-    const days: { date: string; pretty: string; label: string }[] = [];
-    for (let i = 0; i < 5; i += 1) {
-      const d = new Date(
-        monday.getFullYear(),
-        monday.getMonth(),
-        monday.getDate() + i,
-      );
-      days.push({
-        date: formatYMD(d),        // "YYYY-MM-DD"
-        pretty: formatPretty(d),   // "Nov 24"
-        label: WEEKDAY_LABELS[i],  // "Monday", "Tuesday", ...
-      });
-    }
-
-    return days;
-  }, [weekStartParam]);
-
-  const weekPrettyRange = useMemo(() => {
-    if (weekDays.length === 0) return "";
-    const first = weekDays[0];
-    const last = weekDays[weekDays.length - 1];
-    return `${first.pretty} – ${last.pretty}`;
-  }, [weekDays]);
-
-  // Load driver + time entries
+  // Load driver info
   useEffect(() => {
-    const load = async () => {
-      if (!driverId || weekDays.length === 0) {
-        setError("Missing driver or week information.");
-        setLoading(false);
-        return;
-      }
+    if (!driverId) return;
 
+    const loadDriver = async () => {
       try {
-        setLoading(true);
-        setError(null);
-
-        // 1) Driver record
-        const { data: driverData, error: drvErr } = await supabase
+        const { data, error: drvErr } = await supabase
           .from("drivers")
-          .select("*")
+          .select("id, full_name, license_number")
           .eq("id", driverId)
           .maybeSingle();
 
         if (drvErr) throw drvErr;
-        if (!driverData) {
-          setError("Driver not found.");
-          setLoading(false);
-          return;
-        }
-        setDriver(driverData as Driver);
+        setDriver((data as Driver) || null);
+      } catch (err: any) {
+        console.error(err);
+        setError(
+          err?.message ?? "Failed to load driver details for this timecard.",
+        );
+      }
+    };
 
-        // 2) Time entries for that week
-        const weekStartStr = weekDays[0].date;
-        const weekEndStr = weekDays[weekDays.length - 1].date;
+    void loadDriver();
+  }, [driverId]);
 
-        const { data: timeData, error: timeErr } = await supabase
+  // Load time entries for this driver in this Sun–Sat week
+  useEffect(() => {
+    if (!driverId || !weekStartYmd) return;
+
+    const loadEntries = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const weekEndYmd = getWeekEndYmdFromStart(weekStartYmd);
+
+        const { data, error: timeErr } = await supabase
           .from("driver_time_entries")
           .select(
             "id, driver_id, work_date, start_time, end_time, duration_seconds",
           )
           .eq("driver_id", driverId)
-          .gte("work_date", weekStartStr)
-          .lte("work_date", weekEndStr)
+          .gte("work_date", weekStartYmd)
+          .lte("work_date", weekEndYmd)
+          .order("work_date", { ascending: true })
           .order("start_time", { ascending: true });
 
         if (timeErr) throw timeErr;
 
-        setEntries((timeData as TimeEntry[]) || []);
+        setEntries((data as TimeEntry[]) || []);
       } catch (err: any) {
         console.error(err);
         setError(
           err?.message ??
-            "Failed to load timecard. Please go back and try again.",
+            "Failed to load time entries for this driver and week.",
         );
       } finally {
         setLoading(false);
       }
     };
 
-    load();
-  }, [driverId, weekDays]);
+    void loadEntries();
+  }, [driverId, weekStartYmd]);
 
-  // Compute daily + weekly totals
-  const { dailySeconds, weeklyTotalSeconds } = useMemo(() => {
-    const daily: Record<string, number> = {};
-    let weekTotal = 0;
+  // Build Sun–Sat day list from weekStartYmd
+  const weekDays = useMemo(() => {
+    if (!weekStartYmd) return [];
 
-    if (!weekDays || weekDays.length === 0) {
-      return { dailySeconds: daily, weeklyTotalSeconds: 0 };
+    const [y, m, d] = weekStartYmd.split("-").map(Number);
+    const sunday = new Date(y, (m ?? 1) - 1, d ?? 1);
+
+    const days: string[] = [];
+    for (let i = 0; i < 7; i += 1) {
+      const dd = new Date(
+        sunday.getFullYear(),
+        sunday.getMonth(),
+        sunday.getDate() + i,
+      );
+      const yy = dd.getFullYear();
+      const mm = String(dd.getMonth() + 1).padStart(2, "0");
+      const day = String(dd.getDate()).padStart(2, "0");
+      days.push(`${yy}-${mm}-${day}`);
     }
 
-    const today = new Date();
+    return days;
+  }, [weekStartYmd]);
+
+  // Group by day for display
+  const daySummaries: DaySummary[] = useMemo(() => {
+    if (weekDays.length === 0) return [];
+
+    const map = new Map<string, DaySummary>();
+    const now = new Date();
+
+    // Initialize all days in the week with 0, even if no entries
+    for (const d of weekDays) {
+      map.set(d, {
+        date: d,
+        entries: [],
+        totalSeconds: 0,
+      });
+    }
 
     for (const entry of entries) {
-      let dur: number;
+      const base = map.get(entry.work_date);
+      if (!base) continue;
+
+      let duration = 0;
       if (entry.end_time) {
-        dur =
+        duration =
           entry.duration_seconds ??
           Math.max(
             0,
@@ -191,247 +222,219 @@ export default function TimecardDetailPage() {
             ),
           );
       } else {
-        // Open session: count up to "now" in this view
-        dur = Math.max(
+        // Open session – compute until now
+        duration = Math.max(
           0,
           Math.floor(
-            (today.getTime() - new Date(entry.start_time).getTime()) / 1000,
+            (now.getTime() - new Date(entry.start_time).getTime()) / 1000,
           ),
         );
       }
 
-      const key = entry.work_date;
-      daily[key] = (daily[key] ?? 0) + dur;
-      weekTotal += dur;
+      base.entries.push(entry);
+      base.totalSeconds += duration;
     }
 
-    return { dailySeconds: daily, weeklyTotalSeconds: weekTotal };
+    return Array.from(map.values()).sort((a, b) =>
+      a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
+    );
   }, [entries, weekDays]);
 
-  const handlePrint = () => {
-    if (typeof window !== "undefined") {
-      window.print();
-    }
+  const weekTotalSeconds = useMemo(
+    () => daySummaries.reduce((sum, d) => sum + d.totalSeconds, 0),
+    [daySummaries],
+  );
+
+  const weekLabel = useMemo(
+    () => (weekStartYmd ? formatWeekRangeLabelFromYMD(weekStartYmd) : ""),
+    [weekStartYmd],
+  );
+
+  const handleBackToTimecards = () => {
+    router.push("/admin#timecards");
   };
 
-  if (loading) {
-    return (
-      <div className="space-y-4">
-        <section className="card">
-          <p className="text-sm text-slate-200">Loading timecard…</p>
-        </section>
-      </div>
-    );
-  }
-
-  if (error || !driver || weekDays.length === 0) {
-    return (
-      <div className="space-y-4">
-        <section className="card space-y-3">
-          <h1 className="text-lg font-semibold">Timecard unavailable</h1>
-          <p className="text-sm text-red-300">
-            {error || "Could not load this timecard."}
+  return (
+    <div className="space-y-5 max-w-4xl mx-auto">
+      {/* Header */}
+      <section className="card flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="space-y-1">
+          <h1 className="text-lg font-semibold md:text-xl">
+            Driver Timecard – Weekly Detail
+          </h1>
+          <p className="text-sm text-slate-200/80">
+            {driver ? (
+              <>
+                {driver.full_name} •{" "}
+                <span className="text-xs text-slate-300">
+                  License #: {driver.license_number ?? "N/A"}
+                </span>
+              </>
+            ) : (
+              <span className="text-xs text-slate-300">Loading driver…</span>
+            )}
           </p>
+          <p className="text-xs text-slate-400">
+            Week of{" "}
+            <span className="font-semibold text-slate-100">
+              {weekLabel || "—"}
+            </span>{" "}
+            (Sun–Sat)
+          </p>
+          <p className="text-xs text-slate-400">
+            Weekly total:{" "}
+            <span className="font-mono font-semibold text-emerald-200">
+              {formatDuration(weekTotalSeconds)}
+            </span>
+          </p>
+        </div>
+
+        <div className="flex flex-col items-stretch gap-2 md:items-end">
           <button
             type="button"
-            onClick={() => router.back()}
-            className="btn-ghost w-full max-w-xs text-sm"
+            onClick={handleBackToTimecards}
+            className="btn-ghost px-3 py-1 text-xs"
           >
-            Back to Admin
+            ← Back to Timecards
           </button>
-        </section>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* Top controls (hidden when printing) */}
-      <section className="card flex items-center justify-between gap-2 print:hidden">
-        <button
-          type="button"
-          onClick={() => router.push("/admin#timecards")}
-          className="btn-ghost px-3 py-1 text-sm"
-        >
-          ← Back to Timecards
-        </button>
-        <button
-          type="button"
-          onClick={handlePrint}
-          className="btn-primary px-4 py-2 text-sm"
-        >
-          Print / Save as PDF
-        </button>
+          <Link
+            href="/admin"
+            className="btn-ghost px-3 py-1 text-xs"
+          >
+            Admin dashboard
+          </Link>
+        </div>
       </section>
 
-      {/* Center “document” */}
-      <section className="card mx-auto max-w-3xl bg-slate-950/80 p-4 text-slate-100 print:max-w-none print:bg-white print:p-6 print:text-black">
-        {/* Brand header */}
-        <header className="mb-4 flex flex-col items-start gap-2 border-b border-slate-700 pb-3 text-sm print:border-slate-300">
-          <div className="flex w-full flex-col justify-between gap-2 sm:flex-row sm:items-center">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300 print:text-emerald-700">
-                Transafe Transportation LLC
-              </p>
-              <p className="text-sm font-semibold">
-                Weekly Driver Timecard (7D Pupil Transportation)
-              </p>
-            </div>
-            <div className="text-right text-[11px] text-slate-300 print:text-slate-700">
-              <p>675 VFW Parkway, Suite 103</p>
-              <p>Chestnut Hill, MA 02467</p>
-              <p>Tel: (617) 991-9152</p>
-              <p>www.transafetransport.com</p>
-            </div>
-          </div>
-        </header>
-
-        {/* Driver + week info */}
-        <section className="mb-4 grid gap-3 text-sm sm:grid-cols-2">
-          <div className="space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 print:text-slate-600">
-              Driver information
-            </p>
-            <p>
-              <span className="font-semibold">Name:</span>{" "}
-              <span>{driver.full_name}</span>
-            </p>
-            <p>
-              <span className="font-semibold">License #:</span>{" "}
-              <span>{driver.license_number || "N/A"}</span>
-            </p>
-          </div>
-          <div className="space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 print:text-slate-600">
-              Week information
-            </p>
-            <p>
-              <span className="font-semibold">Week of:</span>{" "}
-              <span>{weekPrettyRange}</span>
-            </p>
-            <p>
-              <span className="font-semibold">Period (Mon–Fri):</span>{" "}
-              <span>
-                {weekDays[0].date} – {weekDays[weekDays.length - 1].date}
-              </span>
-            </p>
-          </div>
+      {error && (
+        <section className="card border border-red-500/50 bg-red-950/40">
+          <p className="text-xs font-medium text-red-200">{error}</p>
         </section>
+      )}
 
-        {/* Hours table */}
-        <section className="mb-4">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400 print:text-slate-600">
-            Daily hours summary
-          </p>
-          <div className="overflow-hidden rounded-xl border border-slate-700 bg-slate-950/60 text-sm print:border-slate-300 print:bg-white">
-            <table className="min-w-full border-separate border-spacing-0">
-              <thead>
-                <tr className="bg-slate-900/80 text-xs text-slate-200 print:bg-slate-100 print:text-slate-900">
-                  <th className="border-b border-slate-700 px-3 py-2 text-left font-semibold print:border-slate-300">
-                    Day
-                  </th>
-                  <th className="border-b border-slate-700 px-3 py-2 text-left font-semibold print:border-slate-300">
-                    Date
-                  </th>
-                  <th className="border-b border-slate-700 px-3 py-2 text-right font-semibold print:border-slate-300">
-                    Hours (HH:MM:SS)
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {weekDays.map((d, idx) => {
-                  const secs = dailySeconds[d.date] ?? 0;
+      {loading && (
+        <section className="card">
+          <p className="text-sm text-slate-200">Loading time entries…</p>
+        </section>
+      )}
+
+      {/* Day-by-day breakdown */}
+      <section className="space-y-3">
+        {daySummaries.map((day) => (
+          <section
+            key={day.date}
+            className="card space-y-2 rounded-2xl bg-slate-950/70"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-slate-50">
+                  {formatDateNice(day.date)}
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  {day.entries.length} session
+                  {day.entries.length === 1 ? "" : "s"}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                  Daily total
+                </p>
+                <p className="font-mono text-sm font-semibold text-emerald-200">
+                  {formatDuration(day.totalSeconds)}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2 rounded-xl bg-slate-950/80 p-2">
+              {day.entries.length === 0 ? (
+                <p className="text-[11px] text-slate-500">
+                  No time entries for this day.
+                </p>
+              ) : (
+                day.entries.map((entry) => {
+                  const isOpen = !entry.end_time;
+
+                  let computedSeconds = 0;
+                  if (entry.end_time) {
+                    computedSeconds =
+                      entry.duration_seconds ??
+                      Math.max(
+                        0,
+                        Math.floor(
+                          (new Date(entry.end_time).getTime() -
+                            new Date(entry.start_time).getTime()) /
+                            1000,
+                        ),
+                      );
+                  } else {
+                    const now = new Date();
+                    computedSeconds = Math.max(
+                      0,
+                      Math.floor(
+                        (now.getTime() -
+                          new Date(entry.start_time).getTime()) /
+                          1000,
+                      ),
+                    );
+                  }
+
+                  const duration = formatDuration(computedSeconds);
+
                   return (
-                    <tr
-                      key={d.date}
-                      className={
-                        idx % 2 === 0
-                          ? "bg-slate-950/40 print:bg-white"
-                          : "bg-slate-900/40 print:bg-slate-50"
-                      }
+                    <div
+                      key={entry.id}
+                      className="flex flex-col gap-1 rounded-lg border border-white/5 bg-slate-900/80 px-2 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3"
                     >
-                      <td className="border-b border-slate-800 px-3 py-2 text-sm print:border-slate-200">
-                        {d.label}
-                      </td>
-                      <td className="border-b border-slate-800 px-3 py-2 text-sm print:border-slate-200">
-                        {d.pretty} ({d.date})
-                      </td>
-                      <td className="border-b border-slate-800 px-3 py-2 text-right font-mono text-sm print:border-slate-200">
-                        {formatDuration(secs)}
-                      </td>
-                    </tr>
+                      <div className="flex gap-4">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">
+                            Start
+                          </p>
+                          <p className="font-mono text-[13px] text-slate-50">
+                            {formatTime(entry.start_time)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">
+                            End
+                          </p>
+                          <p className="font-mono text-[13px] text-slate-50">
+                            {entry.end_time ? formatTime(entry.end_time) : "—"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-3 sm:justify-end">
+                        <div className="text-right">
+                          <p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">
+                            Duration
+                          </p>
+                          <p className="font-mono text-[13px] text-emerald-200">
+                            {duration}
+                          </p>
+                        </div>
+                        {isOpen && (
+                          <span className="inline-flex items-center rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-200">
+                            Open session
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   );
-                })}
-                <tr className="bg-slate-900/80 text-slate-100 print:bg-slate-100 print:text-slate-900">
-                  <td className="px-3 py-2 text-sm font-semibold">
-                    Weekly total
-                  </td>
-                  <td className="px-3 py-2 text-sm" />
-                  <td className="px-3 py-2 text-right font-mono text-sm font-semibold">
-                    {formatDuration(weeklyTotalSeconds)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        {/* Certification & signatures */}
-        <section className="mt-4 space-y-4 text-sm">
-          <p className="text-xs text-slate-300 print:text-slate-700">
-            I certify that this timecard accurately reflects the hours worked
-            operating a 7D school pupil transport vehicle for Transafe
-            Transportation LLC during the period shown above.
-          </p>
-
-          <div className="grid gap-6 text-sm sm:grid-cols-2">
-            <div className="space-y-4">
-              <div>
-                <p className="border-b border-dotted border-slate-500 pb-4 print:border-slate-500">
-                  &nbsp;
-                </p>
-                <p className="mt-1 text-xs uppercase tracking-[0.14em] text-slate-400 print:text-slate-600">
-                  Driver signature
-                </p>
-              </div>
-              <div>
-                <p className="border-b border-dotted border-slate-500 pb-4 print:border-slate-500">
-                  &nbsp;
-                </p>
-                <p className="mt-1 text-xs uppercase tracking-[0.14em] text-slate-400 print:text-slate-600">
-                  Date
-                </p>
-              </div>
+                })
+              )}
             </div>
+          </section>
+        ))}
+      </section>
 
-            <div className="space-y-4">
-              <div>
-                <p className="border-b border-dotted border-slate-500 pb-4 print:border-slate-500">
-                  &nbsp;
-                </p>
-                <p className="mt-1 text-xs uppercase tracking-[0.14em] text-slate-400 print:text-slate-600">
-                  Supervisor / admin signature
-                </p>
-              </div>
-              <div>
-                <p className="border-b border-dotted border-slate-500 pb-4 print:border-slate-500">
-                  &nbsp;
-                </p>
-                <p className="mt-1 text-xs uppercase tracking-[0.14em] text-slate-400 print:text-slate-600">
-                  Date
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Footer note */}
-        <footer className="mt-6 border-t border-slate-700 pt-2 text-[10px] text-slate-400 print:border-slate-300 print:text-slate-600">
-          <p>
-            Internal record for Transafe Transportation LLC. Retain with driver
-            payroll and compliance documentation.
-          </p>
-        </footer>
+      {/* Hint footer */}
+      <section className="card">
+        <p className="text-[11px] text-slate-400">
+          Time entries are created from driver pre-trip (clock start) and
+          post-trip (clock stop) inspections. Use this weekly view for payroll
+          review, audits, and resolving disputes about hours worked.
+        </p>
       </section>
     </div>
   );

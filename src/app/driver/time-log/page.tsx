@@ -56,25 +56,25 @@ function formatTime(iso: string | null): string {
   });
 }
 
-// Monday for a given date (Mon–Fri week)
-function getMondayOfWeek(date: Date): Date {
-  const day = date.getDay(); // 0 (Sun) – 6 (Sat)
-  const diff = (day + 6) % 7; // Mon -> 0, Tue -> 1, ..., Sun -> 6
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate() - diff);
+// Start of the week (Sunday–Saturday)
+function getSundayOfWeek(date: Date): Date {
+  const day = date.getDay(); // 0 (Sun) – 6 (Sat), where 0 is Sunday
+  // Subtract the day index to get back to Sunday
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() - day);
 }
 
-function formatWeekRangeLabel(monday: Date): string {
-  const friday = new Date(
-    monday.getFullYear(),
-    monday.getMonth(),
-    monday.getDate() + 4,
+function formatWeekRangeLabel(sunday: Date): string {
+  const saturday = new Date(
+    sunday.getFullYear(),
+    sunday.getMonth(),
+    sunday.getDate() + 6,
   );
 
-  const startStr = monday.toLocaleDateString(undefined, {
+  const startStr = sunday.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
   });
-  const endStr = friday.toLocaleDateString(undefined, {
+  const endStr = saturday.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
   });
@@ -95,39 +95,39 @@ export default function DriverTimeLogPage() {
   // 0 = current week, -1 = previous week, +1 = next week, etc.
   const [weekOffset, setWeekOffset] = useState(0);
 
-  // Compute the Monday of the displayed week based on the offset
-  const weekMonday = useMemo(() => {
-    const baseMonday = getMondayOfWeek(new Date());
+  // Compute the Sunday of the displayed week based on the offset (Sun–Sat)
+  const weekStart = useMemo(() => {
+    const baseSunday = getSundayOfWeek(new Date());
     return new Date(
-      baseMonday.getFullYear(),
-      baseMonday.getMonth(),
-      baseMonday.getDate() + weekOffset * 7,
+      baseSunday.getFullYear(),
+      baseSunday.getMonth(),
+      baseSunday.getDate() + weekOffset * 7,
     );
   }, [weekOffset]);
 
   const weekLabel = useMemo(
-    () => formatWeekRangeLabel(weekMonday),
-    [weekMonday],
+    () => formatWeekRangeLabel(weekStart),
+    [weekStart],
   );
 
   const weekStartYMD = useMemo(() => {
-    const y = weekMonday.getFullYear();
-    const m = String(weekMonday.getMonth() + 1).padStart(2, "0");
-    const d = String(weekMonday.getDate()).padStart(2, "0");
+    const y = weekStart.getFullYear();
+    const m = String(weekStart.getMonth() + 1).padStart(2, "0");
+    const d = String(weekStart.getDate()).padStart(2, "0");
     return `${y}-${m}-${d}`;
-  }, [weekMonday]);
+  }, [weekStart]);
 
   const weekEndYMD = useMemo(() => {
-    const friday = new Date(
-      weekMonday.getFullYear(),
-      weekMonday.getMonth(),
-      weekMonday.getDate() + 4,
+    const saturday = new Date(
+      weekStart.getFullYear(),
+      weekStart.getMonth(),
+      weekStart.getDate() + 6,
     );
-    const y = friday.getFullYear();
-    const m = String(friday.getMonth() + 1).padStart(2, "0");
-    const d = String(friday.getDate()).padStart(2, "0");
+    const y = saturday.getFullYear();
+    const m = String(saturday.getMonth() + 1).padStart(2, "0");
+    const d = String(saturday.getDate()).padStart(2, "0");
     return `${y}-${m}-${d}`;
-  }, [weekMonday]);
+  }, [weekStart]);
 
   // Restore driver from localStorage (same keys used by Driver Portal)
   useEffect(() => {
@@ -335,8 +335,9 @@ export default function DriverTimeLogPage() {
             <span className="font-semibold text-slate-100">
               {weekLabel}
             </span>{" "}
-            (Mon–Fri)
+            (Sun–Sat)
           </p>
+
         </div>
 
         <div className="flex flex-col items-stretch gap-2 sm:items-end">
