@@ -32,7 +32,7 @@ export default function AdminAddDriverPage() {
       const payload: any = {
         full_name: name.trim(),
         license_number: license.trim() || null,
-        phone_number: phone.trim() || null,
+        phone: phone.trim() || null,
         hourly_rate: Number.isNaN(hourlyNum) ? null : hourlyNum,
         is_active: true,
       };
