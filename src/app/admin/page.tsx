@@ -1653,24 +1653,35 @@ const handleShiftWeek = (deltaWeeks: number) => {
               Driver Timecards
             </h2>
             <p className="text-sm text-slate-300">
-               Live daily and weekly hours for each driver, Sunday to Saturday.
+              Live daily and weekly hours for each driver, Sunday to Saturday.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => handleShiftWeek(-1)}
-              className="btn-ghost px-3 py-1 text-xs"
+
+          <div className="flex flex-col gap-2 sm:items-end">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleShiftWeek(-1)}
+                className="btn-ghost px-3 py-1 text-xs"
+              >
+                ◀ Previous week
+              </button>
+              <button
+                type="button"
+                onClick={() => handleShiftWeek(1)}
+                className="btn-ghost px-3 py-1 text-xs"
+              >
+                Next week ▶
+              </button>
+            </div>
+
+            {/* NEW: Live Clock link */}
+            <Link
+              href="/admin/timecards/live"
+              className="btn-ghost px-3 py-1 text-[11px]"
             >
-              ◀ Previous week
-            </button>
-            <button
-              type="button"
-              onClick={() => handleShiftWeek(1)}
-              className="btn-ghost px-3 py-1 text-xs"
-            >
-              Next week ▶
-            </button>
+              Live Clock →
+            </Link>
           </div>
         </div>
 
@@ -1682,6 +1693,7 @@ const handleShiftWeek = (deltaWeeks: number) => {
           (Sun–Sat)
         </p>
       </section>
+
 
       {error && (
         <section className="card border border-red-500/50 bg-red-950/40">
