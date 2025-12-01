@@ -9,8 +9,10 @@ type Driver = {
   id: string;
   full_name: string;
   license_number: string | null;
+  phone: string | null;          // NEW
+  hourly_rate: number | null;    // NEW
   is_active: boolean;
-  pin: string | null;        // NEW
+  pin: string | null;
   created_at: string;
 };
 
@@ -47,6 +49,16 @@ function formatDateTime(iso: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   })}`;
+}
+
+function formatPhone(phone: string | null): string {
+  if (!phone) return "—";
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length === 10) {
+    return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  // fallback for non-10-digit formats
+  return phone;
 }
 
 function getWeekStartDate(): Date {
@@ -119,16 +131,25 @@ export default function AdminPage() {
   const [accessCodeInput, setAccessCodeInput] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<AdminTab>("inspections");
+const [activeTab, setActiveTab] = useState<AdminTab>("inspections");
 
-    // If URL has #timecards (e.g. from Back button), open the Timecards tab
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const hash = window.location.hash;
-    if (hash === "#timecards") {
-      setActiveTab("timecards" as AdminTab);
-    }
-  }, []);
+// Open the correct tab based on URL hash (e.g. /admin#drivers)
+useEffect(() => {
+  if (typeof window === "undefined") return;
+
+  const rawHash = window.location.hash; // e.g. "#drivers"
+  const hash = rawHash.replace("#", "").toLowerCase(); // "drivers"
+
+  if (hash === "drivers") {
+    setActiveTab("drivers");
+  } else if (hash === "vehicles") {
+    setActiveTab("vehicles");
+  } else if (hash === "timecards") {
+    setActiveTab("timecards");
+  } else if (hash === "inspections") {
+    setActiveTab("inspections");
+  }
+}, []);
 
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -143,9 +164,11 @@ export default function AdminPage() {
   const [newDriverLicense, setNewDriverLicense] = useState("");
 
   // Edit driver
-  const [editingDriverId, setEditingDriverId] = useState<string | null>(null);
-  const [editDriverName, setEditDriverName] = useState("");
-  const [editDriverLicense, setEditDriverLicense] = useState("");
+const [editingDriverId, setEditingDriverId] = useState<string | null>(null);
+const [editDriverName, setEditDriverName] = useState("");
+const [editDriverLicense, setEditDriverLicense] = useState("");
+const [editDriverPhone, setEditDriverPhone] = useState("");    // NEW
+const [editDriverHourly, setEditDriverHourly] = useState("");  // NEW
 
   // New vehicle form
   const [vehicleLabel, setVehicleLabel] = useState("");
@@ -312,17 +335,23 @@ export default function AdminPage() {
     }
   };
 
-  const startEditDriver = (driver: Driver) => {
-    setEditingDriverId(driver.id);
-    setEditDriverName(driver.full_name);
-    setEditDriverLicense(driver.license_number ?? "");
-  };
+const startEditDriver = (driver: Driver) => {
+  setEditingDriverId(driver.id);
+  setEditDriverName(driver.full_name);
+  setEditDriverLicense(driver.license_number ?? "");
+  setEditDriverPhone(driver.phone_number ?? "");          // NEW
+  setEditDriverHourly(
+    driver.hourly_rate != null ? String(driver.hourly_rate) : ""
+  );                                                      // NEW
+};
 
-  const cancelEditDriver = () => {
-    setEditingDriverId(null);
-    setEditDriverName("");
-    setEditDriverLicense("");
-  };
+const cancelEditDriver = () => {
+  setEditingDriverId(null);
+  setEditDriverName("");
+  setEditDriverLicense("");
+  setEditDriverPhone("");     // NEW
+  setEditDriverHourly("");    // NEW
+};
 
   const saveEditDriver = async () => {
     if (!editingDriverId || !editDriverName.trim()) return;
@@ -330,10 +359,17 @@ export default function AdminPage() {
     setLoading(true);
     setError(null);
     try {
-      const payload = {
-        full_name: editDriverName.trim(),
-        license_number: editDriverLicense.trim() || null,
-      };
+    const hourly =
+      editDriverHourly.trim() === ""
+        ? null
+        : Number(editDriverHourly.trim());
+
+    const payload = {
+      full_name: editDriverName.trim(),
+      license_number: editDriverLicense.trim() || null,
+      phone_number: editDriverPhone.trim() || null,   // NEW
+      hourly_rate: Number.isNaN(hourly) ? null : hourly, // NEW
+    };
 
       const { data, error: updateErr } = await supabase
         .from("drivers")
@@ -821,88 +857,122 @@ export default function AdminPage() {
         ))}
       </section>
 
-      {/* DRIVERS TAB */}
+              {/* DRIVERS TAB */}
       {activeTab === "drivers" && (
         <section className="space-y-4">
-          {/* Add new driver */}
-          <section className="card space-y-3">
-            <div className="flex items-center justify-between gap-2">
+          {/* Header + Add driver button */}
+          <section className="card flex items-center justify-between gap-2">
+            <div>
               <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">
                 Drivers
               </h2>
+              <p className="text-[11px] text-slate-400">
+                Manage your driver roster, view PIN status, and open a detail
+                page to edit full driver information.
+              </p>
+            </div>
+            <Link
+              href="/admin/drivers/new"
+              className="btn-primary px-4 py-2 text-xs font-semibold"
+            >
+              + Add driver
+            </Link>
+          </section>
+
+          {/* Driver table */}
+          <section className="card space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">
+                Driver roster
+              </h3>
               <span className="text-[11px] text-slate-400">
                 {drivers.length} total
               </span>
             </div>
 
-            <div className="space-y-2 rounded-xl bg-slate-950/50 p-3">
-              <div className="flex items-center justify-between">
-                <label className="block text-xs font-medium text-slate-100">
-                  Add new driver
-                </label>
-                <span className="text-[10px] text-slate-400">
-                  This will appear in the Driver Portal sign-in.
-                </span>
-              </div>
-              <input
-                type="text"
-                value={newDriverName}
-                onChange={(e) => setNewDriverName(e.target.value)}
-                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-                placeholder="Full name"
-              />
-              <input
-                type="text"
-                value={newDriverLicense}
-                onChange={(e) => setNewDriverLicense(e.target.value)}
-                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-                placeholder="Driver's license number"
-              />
-              <button
-                type="button"
-                onClick={handleAddDriver}
-                className="btn-primary w-full text-sm"
-                disabled={loading || !newDriverName.trim()}
-              >
-                + Add driver
-              </button>
-            </div>
-          </section>
-
-          {/* Driver list / profiles */}
-          <section className="card space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">
-                Driver profiles
-              </h3>
-              <p className="text-[11px] text-slate-400">
-                Click a driver to view and edit their profile.
-              </p>
-            </div>
-
-            <div className="max-h-[420px] space-y-2 overflow-y-auto rounded-xl bg-slate-950/40 p-2 text-xs">
+            <div className="overflow-x-auto rounded-2xl bg-slate-950/40">
               {drivers.length === 0 ? (
-                <p className="text-slate-400">No drivers yet.</p>
+                <p className="p-3 text-sm text-slate-400">
+                  No drivers yet. Click &ldquo;Add driver&rdquo; to create your
+                  first driver profile.
+                </p>
               ) : (
-                drivers.map((driver) => {
-                  const isEditing = editingDriverId === driver.id;
-                  return (
-                    <div
-                      key={driver.id}
-                      className="rounded-lg bg-slate-900/80 p-2 hover:bg-slate-900"
-                    >
-                      {/* Collapsed header */}
-                      <div className="flex items-center justify-between gap-2">
-                                              <div>
-                          <p className="text-sm font-semibold text-slate-100">
+                <table className="min-w-full border-separate border-spacing-0 text-xs sm:text-sm">
+                  <thead>
+                    <tr className="bg-slate-900/80 text-slate-200">
+                      <th className="border-b border-slate-800 px-3 py-2 text-left font-semibold">
+                        Name
+                      </th>
+                      <th className="border-b border-slate-800 px-3 py-2 text-left font-semibold">
+                        License #
+                      </th>
+                      <th className="border-b border-slate-800 px-3 py-2 text-left font-semibold">
+                        Phone
+                      </th>
+                      <th className="border-b border-slate-800 px-3 py-2 text-right font-semibold">
+                        Hourly rate
+                      </th>
+                      <th className="border-b border-slate-800 px-3 py-2 text-left font-semibold">
+                        Status
+                      </th>
+                      <th className="border-b border-slate-800 px-3 py-2 text-left font-semibold">
+                        PIN
+                      </th>
+                      <th className="border-b border-slate-800 px-3 py-2 text-right font-semibold">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {drivers.map((driver) => {
+                      const phoneDigits = (driver.phone || "").replace(
+                        /\D/g,
+                        "",
+                      );
+                      return (
+                        <tr
+                          key={driver.id}
+                          className="odd:bg-slate-950/60 even:bg-slate-900/60"
+                        >
+                          <td className="px-3 py-2 text-slate-100">
                             {driver.full_name}
-                          </p>
-                          <p className="text-[10px] text-slate-400">
-                            License: {driver.license_number || "N/A"}
-                          </p>
-
-                          {/* NEW: PIN status badge */}
-                          <p className="mt-0.5 text-[10px]">
+                          </td>
+                          <td className="px-3 py-2 text-slate-100">
+                            {driver.license_number || "N/A"}
+                          </td>
+                          <td className="px-3 py-2 text-slate-100">
+                            {driver.phone && phoneDigits.length === 10 ? (
+                              <a
+                                href={`tel:${phoneDigits}`}
+                                className="underline-offset-2 hover:underline"
+                              >
+                                {formatPhone(driver.phone)}
+                              </a>
+                            ) : driver.phone ? (
+                              <span>{driver.phone}</span>
+                            ) : (
+                              <span className="text-slate-500">
+                                No number
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right text-slate-100">
+                            {driver.hourly_rate != null
+                              ? `$${driver.hourly_rate.toFixed(2)}`
+                              : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-slate-100">
+                            {driver.is_active ? (
+                              <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-200">
+                                Active
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-full bg-slate-500/20 px-2 py-0.5 text-[11px] font-semibold text-slate-200">
+                                Inactive
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-slate-100">
                             {driver.pin ? (
                               <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-200 ring-1 ring-emerald-500/40">
                                 PIN set
@@ -912,120 +982,47 @@ export default function AdminPage() {
                                 PIN not set
                               </span>
                             )}
-                          </p>
-
-                          <p className="mt-0.5 text-[10px] text-slate-500">
-                            Status: {driver.is_active ? "Active" : "Inactive"}
-                          </p>
-                        </div>
-
-                        <div className="flex flex-col gap-1">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              isEditing
-                                ? cancelEditDriver()
-                                : startEditDriver(driver)
-                            }
-                            className="btn-ghost px-3 py-1 text-[11px]"
-                            disabled={loading}
-                          >
-                            {isEditing ? "Close" : "View / Edit"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleToggleDriverActive(driver)}
-                            className="btn-ghost px-3 py-1 text-[11px]"
-                            disabled={loading}
-                          >
-                            {driver.is_active ? "Deactivate" : "Activate"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleSetDriverPin(driver)}
-                            className="btn-ghost px-3 py-1 text-[11px]"
-                            disabled={loading}
-                          >
-                            Set / Reset PIN
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteDriver(driver)}
-                            className="btn-ghost px-3 py-1 text-[11px] text-red-300 hover:text-red-200"
-                            disabled={loading}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Expanded edit form */}
-                      {isEditing && (
-                        <div className="mt-2 space-y-2 rounded-xl bg-slate-950/80 p-3">
-                          <p className="text-[11px] font-semibold text-slate-200">
-                            Edit driver profile
-                          </p>
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <div className="space-y-1">
-                              <label className="text-[11px] text-slate-300">
-                                Full name
-                              </label>
-                              <input
-                                type="text"
-                                value={editDriverName}
-                                onChange={(e) =>
-                                  setEditDriverName(e.target.value)
-                                }
-                                className="w-full rounded-xl border border-white/15 bg-slate-900 px-2 py-1.5 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-                              />
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <div className="flex flex-wrap items-center justify-end gap-1.5">
+                              <Link
+                                href={`/admin/drivers/${driver.id}`}
+                                className="btn-ghost px-3 py-1 text-[11px]"
+                              >
+                                View / Edit
+                              </Link>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleDriverActive(driver)}
+                                className="btn-ghost px-3 py-1 text-[11px]"
+                                disabled={loading}
+                              >
+                                {driver.is_active ? "Deactivate" : "Activate"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleSetDriverPin(driver)}
+                                className="btn-ghost px-3 py-1 text-[11px]"
+                                disabled={loading}
+                              >
+                                Set / Reset PIN
+                              </button>
                             </div>
-                            <div className="space-y-1">
-                              <label className="text-[11px] text-slate-300">
-                                Driver&apos;s license #
-                              </label>
-                              <input
-                                type="text"
-                                value={editDriverLicense}
-                                onChange={(e) =>
-                                  setEditDriverLicense(e.target.value)
-                                }
-                                className="w-full rounded-xl border border-white/15 bg-slate-900 px-2 py-1.5 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="flex flex-wrap gap-2 pt-1">
-                            <button
-                              type="button"
-                              onClick={saveEditDriver}
-                              className="btn-primary px-4 py-1.5 text-[11px]"
-                              disabled={loading || !editDriverName.trim()}
-                            >
-                              Save changes
-                            </button>
-                            <button
-                              type="button"
-                              onClick={cancelEditDriver}
-                              className="btn-ghost px-4 py-1.5 text-[11px]"
-                              disabled={loading}
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               )}
             </div>
-          </section>
 
-          {loading && (
-            <p className="text-[11px] text-slate-400">
-              Working… please wait a moment.
-            </p>
-          )}
+            {loading && (
+              <p className="text-[11px] text-slate-400">
+                Working… please wait a moment.
+              </p>
+            )}
+          </section>
         </section>
       )}
 
