@@ -339,7 +339,7 @@ const startEditDriver = (driver: Driver) => {
   setEditingDriverId(driver.id);
   setEditDriverName(driver.full_name);
   setEditDriverLicense(driver.license_number ?? "");
-  setEditDriverPhone(driver.phone_number ?? "");          // NEW
+  setEditDriverPhone(driver.phone?? "");          // NEW
   setEditDriverHourly(
     driver.hourly_rate != null ? String(driver.hourly_rate) : ""
   );                                                      // NEW
@@ -367,7 +367,7 @@ const cancelEditDriver = () => {
     const payload = {
       full_name: editDriverName.trim(),
       license_number: editDriverLicense.trim() || null,
-      phone_number: editDriverPhone.trim() || null,   // NEW
+      phone: editDriverPhone.trim() || null,   // NEW
       hourly_rate: Number.isNaN(hourly) ? null : hourly, // NEW
     };
 
