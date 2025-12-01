@@ -9,12 +9,35 @@ type Driver = {
   id: string;
   full_name: string;
   license_number: string | null;
-  phone: string | null;          // NEW
-  hourly_rate: number | null;    // NEW
+  phone: string | null;
+  hourly_rate: number | null;
   is_active: boolean;
   pin: string | null;
   created_at: string;
 };
+
+function formatPhoneDisplay(raw: string | null): string {
+  if (!raw) return "—";
+
+  // keep digits only
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length === 10) {
+    const area = digits.slice(0, 3);
+    const mid = digits.slice(3, 6);
+    const last = digits.slice(6);
+    return `${area}-${mid}-${last}`;
+  }
+
+  // fallback – show original
+  return raw;
+}
+
+function phoneHref(raw: string | null): string | null {
+  if (!raw) return null;
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return null;
+  return `tel:${digits}`;
+}
 
 type Vehicle = {
   id: string;
@@ -150,8 +173,10 @@ useEffect(() => {
     setActiveTab("inspections");
   }
 }, []);
-
+  
   const [drivers, setDrivers] = useState<Driver[]>([]);
+   // Driver Search
+  const [driverSearch, setDriverSearch] = useState("");
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [inspections, setInspections] = useState<InspectionSummary[]>([]);
   
@@ -235,6 +260,16 @@ const [editDriverHourly, setEditDriverHourly] = useState("");  // NEW
 
     loadData();
   }, [isAuthenticated]);
+
+  const filteredDrivers = useMemo(() => {
+  const query = driverSearch.trim().toLowerCase();
+  if (!query) return drivers;
+
+  return drivers.filter((d) =>
+    (d.full_name ?? "").toLowerCase().includes(query),
+  );
+}, [drivers, driverSearch]);
+
 
   const refreshInspectionsInternal = async () => {
     setLoadingInspections(true);
@@ -857,18 +892,18 @@ const cancelEditDriver = () => {
         ))}
       </section>
 
-              {/* DRIVERS TAB */}
+       {/* DRIVERS TAB */}
       {activeTab === "drivers" && (
-        <section className="space-y-4">
+        <section className="space-y-4" id="drivers">
           {/* Header + Add driver button */}
-          <section className="card flex items-center justify-between gap-2">
+          <section className="card flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">
                 Drivers
               </h2>
               <p className="text-[11px] text-slate-400">
-                Manage your driver roster, view PIN status, and open a detail
-                page to edit full driver information.
+                Manage your driver roster, search by name, click to call, and
+                open a detail page to edit full driver information.
               </p>
             </div>
             <Link
@@ -879,149 +914,183 @@ const cancelEditDriver = () => {
             </Link>
           </section>
 
-          {/* Driver table */}
+          {/* Search + table */}
           <section className="card space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">
-                Driver roster
-              </h3>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">
+                  Driver roster
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  Search and scroll through all drivers. Header stays visible
+                  while you scroll.
+                </p>
+              </div>
               <span className="text-[11px] text-slate-400">
-                {drivers.length} total
+                {filteredDrivers.length} of {drivers.length} total
               </span>
             </div>
 
-            <div className="overflow-x-auto rounded-2xl bg-slate-950/40">
-              {drivers.length === 0 ? (
-                <p className="p-3 text-sm text-slate-400">
-                  No drivers yet. Click &ldquo;Add driver&rdquo; to create your
-                  first driver profile.
-                </p>
-              ) : (
-                <table className="min-w-full border-separate border-spacing-0 text-xs sm:text-sm">
-                  <thead>
-                    <tr className="bg-slate-900/80 text-slate-200">
-                      <th className="border-b border-slate-800 px-3 py-2 text-left font-semibold">
-                        Name
-                      </th>
-                      <th className="border-b border-slate-800 px-3 py-2 text-left font-semibold">
-                        License #
-                      </th>
-                      <th className="border-b border-slate-800 px-3 py-2 text-left font-semibold">
-                        Phone
-                      </th>
-                      <th className="border-b border-slate-800 px-3 py-2 text-right font-semibold">
-                        Hourly rate
-                      </th>
-                      <th className="border-b border-slate-800 px-3 py-2 text-left font-semibold">
-                        Status
-                      </th>
-                      <th className="border-b border-slate-800 px-3 py-2 text-left font-semibold">
-                        PIN
-                      </th>
-                      <th className="border-b border-slate-800 px-3 py-2 text-right font-semibold">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {drivers.map((driver) => {
-                      const phoneDigits = (driver.phone || "").replace(
-                        /\D/g,
-                        "",
-                      );
-                      return (
-                        <tr
-                          key={driver.id}
-                          className="odd:bg-slate-950/60 even:bg-slate-900/60"
-                        >
-                          <td className="px-3 py-2 text-slate-100">
-                            {driver.full_name}
-                          </td>
-                          <td className="px-3 py-2 text-slate-100">
-                            {driver.license_number || "N/A"}
-                          </td>
-                          <td className="px-3 py-2 text-slate-100">
-                            {driver.phone && phoneDigits.length === 10 ? (
-                              <a
-                                href={`tel:${phoneDigits}`}
-                                className="underline-offset-2 hover:underline"
-                              >
-                                {formatPhone(driver.phone)}
-                              </a>
-                            ) : driver.phone ? (
-                              <span>{driver.phone}</span>
-                            ) : (
-                              <span className="text-slate-500">
-                                No number
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 text-right text-slate-100">
-                            {driver.hourly_rate != null
-                              ? `$${driver.hourly_rate.toFixed(2)}`
-                              : "—"}
-                          </td>
-                          <td className="px-3 py-2 text-slate-100">
-                            {driver.is_active ? (
-                              <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-200">
-                                Active
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center rounded-full bg-slate-500/20 px-2 py-0.5 text-[11px] font-semibold text-slate-200">
-                                Inactive
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 text-slate-100">
-                            {driver.pin ? (
-                              <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-200 ring-1 ring-emerald-500/40">
-                                PIN set
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-200 ring-1 ring-amber-500/40">
-                                PIN not set
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <div className="flex flex-wrap items-center justify-end gap-1.5">
-                              <Link
-                                href={`/admin/drivers/${driver.id}`}
-                                className="btn-ghost px-3 py-1 text-[11px]"
-                              >
-                                View / Edit
-                              </Link>
-                              <button
-                                type="button"
-                                onClick={() => handleToggleDriverActive(driver)}
-                                className="btn-ghost px-3 py-1 text-[11px]"
-                                disabled={loading}
-                              >
-                                {driver.is_active ? "Deactivate" : "Activate"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleSetDriverPin(driver)}
-                                className="btn-ghost px-3 py-1 text-[11px]"
-                                disabled={loading}
-                              >
-                                Set / Reset PIN
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
+            {/* Driver search */}
+            <div className="space-y-1">
+              <label className="text-[11px] font-medium text-slate-200">
+                Search drivers
+              </label>
+              <input
+                type="text"
+                value={driverSearch}
+                onChange={(e) => setDriverSearch(e.target.value)}
+                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+                placeholder="Type a driver name…"
+              />
             </div>
 
-            {loading && (
-              <p className="text-[11px] text-slate-400">
-                Working… please wait a moment.
-              </p>
-            )}
+            <div className="relative overflow-hidden rounded-2xl bg-slate-950/40">
+              <div className="max-h-[460px] overflow-auto text-[11px] sm:text-xs">
+                {filteredDrivers.length === 0 ? (
+                  <p className="p-3 text-[11px] text-slate-400">
+                    No drivers match your search.
+                  </p>
+                ) : (
+                  <table className="min-w-full border-separate border-spacing-0">
+                    <thead>
+                      <tr className="bg-slate-900/90 text-slate-200">
+                        <th className="sticky top-0 border-b border-slate-800 px-3 py-2 text-left text-[11px] font-semibold backdrop-blur">
+                          Name
+                        </th>
+                        <th className="sticky top-0 border-b border-slate-800 px-3 py-2 text-left text-[11px] font-semibold backdrop-blur">
+                          License #
+                        </th>
+                        <th className="sticky top-0 border-b border-slate-800 px-3 py-2 text-left text-[11px] font-semibold backdrop-blur">
+                          Phone
+                        </th>
+                        <th className="sticky top-0 border-b border-slate-800 px-3 py-2 text-right text-[11px] font-semibold backdrop-blur">
+                          Hourly rate
+                        </th>
+                        <th className="sticky top-0 border-b border-slate-800 px-3 py-2 text-left text-[11px] font-semibold backdrop-blur">
+                          Status
+                        </th>
+                        <th className="sticky top-0 border-b border-slate-800 px-3 py-2 text-left text-[11px] font-semibold backdrop-blur">
+                          PIN
+                        </th>
+                        <th className="sticky top-0 border-b border-slate-800 px-3 py-2 text-right text-[11px] font-semibold backdrop-blur">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredDrivers.map((driver, idx) => {
+                        const phoneDigits = (driver.phone || "").replace(
+                          /\D/g,
+                          "",
+                        );
+
+                        return (
+                          <tr
+                            key={driver.id}
+                            className={`border-b border-slate-800/60 transition hover:bg-slate-900/80 ${
+                              idx % 2 === 0
+                                ? "bg-slate-950/70"
+                                : "bg-slate-900/60"
+                            }`}
+                          >
+                            <td className="px-3 py-2 text-slate-100">
+                              {driver.full_name}
+                            </td>
+                            <td className="px-3 py-2 text-slate-100">
+                              {driver.license_number || "N/A"}
+                            </td>
+                          <td className="px-3 py-2 text-slate-100">
+                              {driver.phone && phoneDigits.length === 10 ? (
+                                <a
+                                  href={`tel:${phoneDigits}`}
+                                  className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-100 ring-1 ring-emerald-500/50 transition hover:bg-emerald-500/25 active:scale-[0.97]"
+                                >
+                                  <span className="text-[12px]">📞</span>
+                                  <span>{formatPhone(driver.phone)}</span>
+                                </a>
+                              ) : driver.phone ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-slate-700/40 px-2.5 py-1 text-[11px] text-slate-100">
+                                  <span>{driver.phone}</span>
+                                </span>
+                              ) : (
+                                <span className="text-slate-500 text-[11px]">No number</span>
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right text-slate-100">
+                              {driver.hourly_rate != null
+                                ? `$${driver.hourly_rate.toFixed(2)}`
+                                : "—"}
+                            </td>
+                            <td className="px-3 py-2 text-slate-100">
+                              {driver.is_active ? (
+                                <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-200">
+                                  Active
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center rounded-full bg-slate-500/20 px-2 py-0.5 text-[11px] font-semibold text-slate-200">
+                                  Inactive
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-slate-100">
+                              {driver.pin ? (
+                                <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-200 ring-1 ring-emerald-500/40">
+                                  PIN set
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-200 ring-1 ring-amber-500/40">
+                                  PIN not set
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                <Link
+                                  href={`/admin/drivers/${driver.id}`}
+                                  className="btn-ghost px-3 py-1 text-[11px]"
+                                >
+                                  View / Edit
+                                </Link>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleToggleDriverActive(driver)
+                                  }
+                                  className="btn-ghost px-3 py-1 text-[11px]"
+                                  disabled={loading}
+                                >
+                                  {driver.is_active
+                                    ? "Deactivate"
+                                    : "Activate"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleSetDriverPin(driver)
+                                  }
+                                  className="btn-ghost px-3 py-1 text-[11px]"
+                                  disabled={loading}
+                                >
+                                  Set / Reset PIN
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              {loading && (
+                <div className="border-t border-slate-800/80 bg-slate-950/80 px-3 py-2 text-[11px] text-slate-400">
+                  Working… please wait a moment.
+                </div>
+              )}
+            </div>
           </section>
         </section>
       )}
