@@ -5,6 +5,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
+// =====================
+//  CONSTANTS & HELPERS
+// =====================
+
+const ADMIN_TAB_STORAGE_KEY = "transafe_admin_active_tab";
+const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE || "";
+
+// ---- SHARED TYPES ----
+
 type Driver = {
   id: string;
   full_name: string;
@@ -15,29 +24,6 @@ type Driver = {
   pin: string | null;
   created_at: string;
 };
-
-function formatPhoneDisplay(raw: string | null): string {
-  if (!raw) return "—";
-
-  // keep digits only
-  const digits = raw.replace(/\D/g, "");
-  if (digits.length === 10) {
-    const area = digits.slice(0, 3);
-    const mid = digits.slice(3, 6);
-    const last = digits.slice(6);
-    return `${area}-${mid}-${last}`;
-  }
-
-  // fallback – show original
-  return raw;
-}
-
-function phoneHref(raw: string | null): string | null {
-  if (!raw) return null;
-  const digits = raw.replace(/\D/g, "");
-  if (!digits) return null;
-  return `tel:${digits}`;
-}
 
 type Vehicle = {
   id: string;
@@ -62,39 +48,6 @@ type InspectionSummary = {
   overall_status: string | null;
 };
 
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_ACCESS_CODE || "";
-
-function formatDateTime(iso: string | null) {
-  if (!iso) return "N/A";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  })}`;
-}
-
-function formatPhone(phone: string | null): string {
-  if (!phone) return "—";
-  const digits = phone.replace(/\D/g, "");
-  if (digits.length === 10) {
-    return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
-  }
-  // fallback for non-10-digit formats
-  return phone;
-}
-
-function getWeekStartDate(): Date {
-  const now = new Date();
-  const day = now.getDay(); // 0 (Sun) – 6 (Sat)
-  // We want Monday as week start:
-  // Mon -> 0, Tue -> 1, ..., Sun -> 6
-  const diff = (day + 6) % 7;
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - diff);
-}
-
-// ==== TIMECARDS HELPERS & TYPES ====
-
 type TimeEntry = {
   id: string;
   driver_id: string;
@@ -112,11 +65,36 @@ type DriverTimeSummary = {
   weekTotalSeconds: number;
 };
 
-// Seven-day week: Sunday–Saturday
+type AdminTab = "inspections" | "drivers" | "vehicles" | "students" | "timecards";
+
+const ADMIN_TABS: AdminTab[] = ["inspections", "drivers", "vehicles", "students", "timecards"];
+
+function isValidAdminTab(value: any): value is AdminTab {
+  return typeof value === "string" && ADMIN_TABS.includes(value as AdminTab);
+}
+
+function formatDateTime(iso: string | null) {
+  if (!iso) return "N/A";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  })}`;
+}
+
+function formatPhone(phone: string | null): string {
+  if (!phone) return "—";
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length === 10) {
+    return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  return phone;
+}
+
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function getWeekStart(date: Date): Date {
-  // Use Sunday as the start of the week
   const day = date.getDay(); // 0 (Sun) – 6 (Sat)
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() - day);
 }
@@ -129,10 +107,7 @@ function formatYMD(d: Date): string {
 }
 
 function formatPretty(d: Date): string {
-  return d.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function formatDuration(seconds: number): string {
@@ -146,7 +121,9 @@ function formatDuration(seconds: number): string {
   )}:${String(s).padStart(2, "0")}`;
 }
 
-type AdminTab = "inspections" | "vehicles" | "drivers" | "timecards";
+// ======================================================
+//                      ADMIN PAGE
+// ======================================================
 
 export default function AdminPage() {
   const router = useRouter();
@@ -154,48 +131,27 @@ export default function AdminPage() {
   const [accessCodeInput, setAccessCodeInput] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-const [activeTab, setActiveTab] = useState<AdminTab>("inspections");
+  const [activeTab, setActiveTab] = useState<AdminTab>("inspections");
 
-// Open the correct tab based on URL hash (e.g. /admin#drivers)
-useEffect(() => {
-  if (typeof window === "undefined") return;
-
-  const rawHash = window.location.hash; // e.g. "#drivers"
-  const hash = rawHash.replace("#", "").toLowerCase(); // "drivers"
-
-  if (hash === "drivers") {
-    setActiveTab("drivers");
-  } else if (hash === "vehicles") {
-    setActiveTab("vehicles");
-  } else if (hash === "timecards") {
-    setActiveTab("timecards");
-  } else if (hash === "inspections") {
-    setActiveTab("inspections");
-  }
-}, []);
-  
   const [drivers, setDrivers] = useState<Driver[]>([]);
-   // Driver Search
-  const [driverSearch, setDriverSearch] = useState("");
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [inspections, setInspections] = useState<InspectionSummary[]>([]);
-  
+
+  const [driverSearch, setDriverSearch] = useState("");
+  const [inspectionSearch, setInspectionSearch] = useState("");
+
   const [loading, setLoading] = useState(false);
   const [loadingInspections, setLoadingInspections] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // New driver form
-  const [newDriverName, setNewDriverName] = useState("");
-  const [newDriverLicense, setNewDriverLicense] = useState("");
-
   // Edit driver
-const [editingDriverId, setEditingDriverId] = useState<string | null>(null);
-const [editDriverName, setEditDriverName] = useState("");
-const [editDriverLicense, setEditDriverLicense] = useState("");
-const [editDriverPhone, setEditDriverPhone] = useState("");    // NEW
-const [editDriverHourly, setEditDriverHourly] = useState("");  // NEW
+  const [editingDriverId, setEditingDriverId] = useState<string | null>(null);
+  const [editDriverName, setEditDriverName] = useState("");
+  const [editDriverLicense, setEditDriverLicense] = useState("");
+  const [editDriverPhone, setEditDriverPhone] = useState("");
+  const [editDriverHourly, setEditDriverHourly] = useState("");
 
-  // New vehicle form
+  // New vehicle
   const [vehicleLabel, setVehicleLabel] = useState("");
   const [vehicleYear, setVehicleYear] = useState("");
   const [vehicleMake, setVehicleMake] = useState("");
@@ -212,10 +168,49 @@ const [editDriverHourly, setEditDriverHourly] = useState("");  // NEW
   const [editVehiclePlate, setEditVehiclePlate] = useState("");
   const [editVehicleVin, setEditVehicleVin] = useState("");
 
-  // Inspections search
-  const [inspectionSearch, setInspectionSearch] = useState("");
+  // ---------------- TAB SYNC (HASH + LOCAL STORAGE) ----------------
 
-  // Restore admin auth from localStorage so Back from inspection keeps portal unlocked
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    // 1) Try the URL hash first: /admin#students, /admin#drivers, etc.
+    const rawHash = window.location.hash; // e.g. "#students"
+    const hash = rawHash.replace("#", "").toLowerCase() || null;
+
+    if (isValidAdminTab(hash)) {
+      setActiveTab(hash);
+      window.localStorage.setItem(ADMIN_TAB_STORAGE_KEY, hash);
+      return;
+    }
+
+    // 2) Otherwise, restore from localStorage
+    const saved = window.localStorage.getItem(ADMIN_TAB_STORAGE_KEY);
+    if (isValidAdminTab(saved)) {
+      setActiveTab(saved);
+      if (!window.location.hash) {
+        window.location.hash = `#${saved}`;
+      }
+      return;
+    }
+
+    // 3) Fallback: inspections
+    setActiveTab("inspections");
+    window.localStorage.setItem(ADMIN_TAB_STORAGE_KEY, "inspections");
+    if (!window.location.hash) {
+      window.location.hash = "#inspections";
+    }
+  }, []);
+
+  const setTabAndRemember = (tab: AdminTab) => {
+    setActiveTab(tab);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(ADMIN_TAB_STORAGE_KEY, tab);
+      window.location.hash = `#${tab}`;
+    }
+  };
+
+  // ---------------- AUTH RESTORE ----------------
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const stored = window.localStorage.getItem("transafe_admin_unlocked");
@@ -224,13 +219,75 @@ const [editDriverHourly, setEditDriverHourly] = useState("");  // NEW
     }
   }, []);
 
-  // Load drivers, vehicles, inspections once authenticated
+  // ---------------- INSPECTIONS LOADER ----------------
+
+  const refreshInspectionsInternal = async () => {
+    setLoadingInspections(true);
+    setError(null);
+
+    try {
+      const { data, error: inspErr } = await supabase
+        .from("inspections")
+        .select("*");
+
+      if (inspErr) throw inspErr;
+
+      let mapped: InspectionSummary[] = (data || []).map((row: any) => ({
+        id: row.id,
+        inspection_type:
+          (row.inspection_type ??
+            row.type ??
+            "pre") as "pre" | "post",
+        shift: row.shift ?? row.shift_name ?? null,
+        submitted_at: row.submitted_at ?? row.created_at ?? null,
+        inspection_date: row.inspection_date ?? row.date ?? null,
+        overall_status: row.overall_status ?? row.status ?? null,
+        driver_name:
+          row.driver_name ??
+          row.driver ??
+          row.driver_full_name ??
+          (row.driver_id ? `Driver ${row.driver_id}` : "Unknown driver"),
+        vehicle_label:
+          row.vehicle_label ??
+          row.vehicle ??
+          row.vehicle_label_full ??
+          (row.vehicle_id ? `Vehicle ${row.vehicle_id}` : null),
+      }));
+
+      // Newest first (top of list)
+      mapped = mapped.sort((a, b) => {
+        const aTime = new Date(
+          a.submitted_at || a.inspection_date || 0,
+        ).getTime();
+        const bTime = new Date(
+          b.submitted_at || b.inspection_date || 0,
+        ).getTime();
+        return bTime - aTime;
+      });
+
+      setInspections(mapped);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message ?? "Failed to load inspections.");
+    } finally {
+      setLoadingInspections(false);
+    }
+  };
+
+  const refreshInspections = async () => {
+    if (!isAuthenticated) return;
+    await refreshInspectionsInternal();
+  };
+
+  // ---------------- LOAD DRIVERS & VEHICLES WHEN AUTHED ----------------
+
   useEffect(() => {
     if (!isAuthenticated) return;
 
     const loadData = async () => {
       setLoading(true);
       setError(null);
+
       try {
         const { data: driverData, error: driverErr } = await supabase
           .from("drivers")
@@ -252,7 +309,7 @@ const [editDriverHourly, setEditDriverHourly] = useState("");  // NEW
         await refreshInspectionsInternal();
       } catch (err: any) {
         console.error(err);
-        setError(err.message ?? "Failed to load data");
+        setError(err.message ?? "Failed to load data.");
       } finally {
         setLoading(false);
       }
@@ -261,52 +318,12 @@ const [editDriverHourly, setEditDriverHourly] = useState("");  // NEW
     loadData();
   }, [isAuthenticated]);
 
-  const filteredDrivers = useMemo(() => {
-  const query = driverSearch.trim().toLowerCase();
-  if (!query) return drivers;
-
-  return drivers.filter((d) =>
-    (d.full_name ?? "").toLowerCase().includes(query),
-  );
-}, [drivers, driverSearch]);
-
-
-  const refreshInspectionsInternal = async () => {
-    setLoadingInspections(true);
-    try {
-      const ninetyDaysAgo = new Date();
-      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-
-      const { data: inspData, error: inspErr } = await supabase
-        .from("inspections")
-        .select(
-          "id,driver_name,vehicle_label,inspection_type,shift,submitted_at,inspection_date,overall_status",
-        )
-        .gte("submitted_at", ninetyDaysAgo.toISOString())
-        .order("submitted_at", { ascending: false })
-        .limit(500);
-
-      if (inspErr) throw inspErr;
-      setInspections((inspData as InspectionSummary[]) || []);
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message ?? "Failed to load inspection history");
-    } finally {
-      setLoadingInspections(false);
-    }
-  };
-
-  const refreshInspections = async () => {
-    if (!isAuthenticated) return;
-    await refreshInspectionsInternal();
-  };
+  // ---------------- AUTH HANDLERS ----------------
 
   const handleAccess = () => {
-    if (accessCodeInput.trim() === ADMIN_CODE.trim() && ADMIN_CODE) {
+    if (ADMIN_CODE && accessCodeInput.trim() === ADMIN_CODE.trim()) {
       setIsAuthenticated(true);
       setError(null);
-
-      // Persist admin unlock in localStorage
       if (typeof window !== "undefined") {
         window.localStorage.setItem("transafe_admin_unlocked", "true");
       }
@@ -316,12 +333,10 @@ const [editDriverHourly, setEditDriverHourly] = useState("");  // NEW
   };
 
   const handleLogout = () => {
-    // Clear admin session from localStorage
     if (typeof window !== "undefined") {
       window.localStorage.removeItem("transafe_admin_unlocked");
     }
 
-    // Clear admin session and sensitive state
     setIsAuthenticated(false);
     setAccessCodeInput("");
     setDrivers([]);
@@ -330,63 +345,30 @@ const [editDriverHourly, setEditDriverHourly] = useState("");  // NEW
     setEditingDriverId(null);
     setEditingVehicleId(null);
     setError(null);
+    setActiveTab("inspections");
 
-    // Return to landing page
     router.push("/");
   };
 
-  // ---------- DRIVER HANDLERS ----------
+  // ---------------- DRIVER HANDLERS ----------------
 
-  const handleAddDriver = async () => {
-    if (!newDriverName.trim()) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const payload = {
-        full_name: newDriverName.trim(),
-        license_number: newDriverLicense.trim() || null,
-      };
-
-      const { data, error: insertErr } = await supabase
-        .from("drivers")
-        .insert(payload)
-        .select()
-        .single();
-
-      if (insertErr) throw insertErr;
-
-      setDrivers((prev) =>
-        [...prev, data as Driver].sort((a, b) =>
-          a.full_name.localeCompare(b.full_name),
-        ),
-      );
-      setNewDriverName("");
-      setNewDriverLicense("");
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message ?? "Failed to add driver.");
-    } finally {
-      setLoading(false);
-    }
+  const startEditDriver = (driver: Driver) => {
+    setEditingDriverId(driver.id);
+    setEditDriverName(driver.full_name);
+    setEditDriverLicense(driver.license_number ?? "");
+    setEditDriverPhone(driver.phone ?? "");
+    setEditDriverHourly(
+      driver.hourly_rate != null ? String(driver.hourly_rate) : "",
+    );
   };
 
-const startEditDriver = (driver: Driver) => {
-  setEditingDriverId(driver.id);
-  setEditDriverName(driver.full_name);
-  setEditDriverLicense(driver.license_number ?? "");
-  setEditDriverPhone(driver.phone?? "");          // NEW
-  setEditDriverHourly(
-    driver.hourly_rate != null ? String(driver.hourly_rate) : ""
-  );                                                      // NEW
-};
-
-const cancelEditDriver = () => {
-  setEditingDriverId(null);
-  setEditDriverName("");
-  setEditDriverLicense("");
-  setEditDriverPhone("");     // NEW
-  setEditDriverHourly("");    // NEW
-};
+  const cancelEditDriver = () => {
+    setEditingDriverId(null);
+    setEditDriverName("");
+    setEditDriverLicense("");
+    setEditDriverPhone("");
+    setEditDriverHourly("");
+  };
 
   const saveEditDriver = async () => {
     if (!editingDriverId || !editDriverName.trim()) return;
@@ -394,17 +376,17 @@ const cancelEditDriver = () => {
     setLoading(true);
     setError(null);
     try {
-    const hourly =
-      editDriverHourly.trim() === ""
-        ? null
-        : Number(editDriverHourly.trim());
+      const hourly =
+        editDriverHourly.trim() === ""
+          ? null
+          : Number(editDriverHourly.trim());
 
-    const payload = {
-      full_name: editDriverName.trim(),
-      license_number: editDriverLicense.trim() || null,
-      phone: editDriverPhone.trim() || null,   // NEW
-      hourly_rate: Number.isNaN(hourly) ? null : hourly, // NEW
-    };
+      const payload = {
+        full_name: editDriverName.trim(),
+        license_number: editDriverLicense.trim() || null,
+        phone: editDriverPhone.trim() || null,
+        hourly_rate: Number.isNaN(hourly) ? null : hourly,
+      };
 
       const { data, error: updateErr } = await supabase
         .from("drivers")
@@ -454,53 +436,14 @@ const cancelEditDriver = () => {
     }
   };
 
-  const handleDeleteDriver = async (driver: Driver) => {
-    const confirmed = window.confirm(
-      `Delete driver "${driver.full_name}"? This cannot be undone.`,
-    );
-    if (!confirmed) return;
-
-    setLoading(true);
-    setError(null);
-    try {
-      const { error: deleteErr } = await supabase
-        .from("drivers")
-        .delete()
-        .eq("id", driver.id);
-
-      if (deleteErr) throw deleteErr;
-
-      setDrivers((prev) => prev.filter((d) => d.id !== driver.id));
-      if (editingDriverId === driver.id) {
-        cancelEditDriver();
-      }
-    } catch (err: any) {
-      console.error(err);
-      setError(
-        err.message ??
-          "Failed to delete driver. Check if they are referenced elsewhere.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-    const handleSetDriverPin = async (driver: Driver) => {
+  const handleSetDriverPin = async (driver: Driver) => {
     const newPin = window.prompt(
-      `Enter a new PIN for ${driver.full_name} (4–6 digits).\nLeave blank to cancel.`
+      `Enter a new PIN for ${driver.full_name} (4–6 digits).\nLeave blank to cancel.`,
     );
-
-    // User clicked "Cancel"
     if (newPin === null) return;
-
     const trimmed = newPin.trim();
+    if (!trimmed) return;
 
-    // Empty input – treat as cancel
-    if (!trimmed) {
-      return;
-    }
-
-    // Basic validation: numeric, 4–6 digits
     const pinRegex = /^[0-9]{4,6}$/;
     if (!pinRegex.test(trimmed)) {
       alert("PIN must be 4–6 digits (numbers only).");
@@ -518,11 +461,8 @@ const cancelEditDriver = () => {
 
       if (updateErr) throw updateErr;
 
-      // Update local state so UI reflects new PIN
       setDrivers((prev) =>
-        prev.map((d) =>
-          d.id === driver.id ? { ...d, pin: trimmed } : d,
-        ),
+        prev.map((d) => (d.id === driver.id ? { ...d, pin: trimmed } : d)),
       );
 
       alert(`PIN updated for ${driver.full_name}.`);
@@ -535,7 +475,7 @@ const cancelEditDriver = () => {
     }
   };
 
-  // ---------- VEHICLE HANDLERS ----------
+  // ---------------- VEHICLE HANDLERS ----------------
 
   const handleAddVehicle = async () => {
     if (!vehicleLabel.trim()) return;
@@ -694,7 +634,15 @@ const cancelEditDriver = () => {
     }
   };
 
-  // ---------- INSPECTIONS FILTER & EXPORT ----------
+  // ---------------- FILTERED DATA ----------------
+
+  const filteredDrivers = useMemo(() => {
+    const query = driverSearch.trim().toLowerCase();
+    if (!query) return drivers;
+    return drivers.filter((d) =>
+      (d.full_name ?? "").toLowerCase().includes(query),
+    );
+  }, [drivers, driverSearch]);
 
   const filteredInspections = useMemo(() => {
     if (!inspectionSearch.trim()) return inspections;
@@ -725,6 +673,8 @@ const cancelEditDriver = () => {
       );
     });
   }, [inspectionSearch, inspections]);
+
+  // ---------------- CSV EXPORT ----------------
 
   const handleExportCsv = () => {
     if (filteredInspections.length === 0) {
@@ -783,7 +733,7 @@ const cancelEditDriver = () => {
     URL.revokeObjectURL(url);
   };
 
-  // ---------- AUTH SCREEN ----------
+  // ---------------- AUTH SCREEN ----------------
 
   if (!isAuthenticated) {
     return (
@@ -792,7 +742,7 @@ const cancelEditDriver = () => {
           <h1 className="mb-2 text-xl font-semibold">Admin Portal</h1>
           <p className="text-sm text-slate-200/80">
             Enter the Transafe admin access code to manage drivers, vehicles,
-            inspection records, and timecards.
+            inspection records, students, and timecards.
           </p>
         </section>
 
@@ -826,7 +776,7 @@ const cancelEditDriver = () => {
     );
   }
 
-  // ---------- MAIN ADMIN UI ----------
+  // ---------------- MAIN ADMIN UI ----------------
 
   return (
     <div className="space-y-4">
@@ -841,7 +791,8 @@ const cancelEditDriver = () => {
               Manage{" "}
               <span className="font-semibold">Inspections</span>,{" "}
               <span className="font-semibold">Vehicles</span>,{" "}
-              <span className="font-semibold">Drivers</span>, and{" "}
+              <span className="font-semibold">Drivers</span>,{" "}
+              <span className="font-semibold">Students</span>, and{" "}
               <span className="font-semibold">Timecards</span> for your 7D
               operation.
             </p>
@@ -874,13 +825,14 @@ const cancelEditDriver = () => {
             { id: "inspections", label: "Inspections" },
             { id: "vehicles", label: "Vehicles" },
             { id: "drivers", label: "Drivers" },
+            { id: "students", label: "Students" },
             { id: "timecards", label: "Timecards" },
           ] as { id: AdminTab; label: string }[]
         ).map((tab) => (
           <button
             key={tab.id}
             type="button"
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => setTabAndRemember(tab.id)}
             className={`rounded-2xl px-4 py-2 text-xs font-semibold transition active:scale-[0.97] ${
               activeTab === tab.id
                 ? "bg-emerald-500 text-slate-950 shadow"
@@ -892,10 +844,9 @@ const cancelEditDriver = () => {
         ))}
       </section>
 
-       {/* DRIVERS TAB */}
+      {/* DRIVERS TAB */}
       {activeTab === "drivers" && (
         <section className="space-y-4" id="drivers">
-          {/* Header + Add driver button */}
           <section className="card flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">
@@ -914,7 +865,6 @@ const cancelEditDriver = () => {
             </Link>
           </section>
 
-          {/* Search + table */}
           <section className="card space-y-3">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -931,7 +881,6 @@ const cancelEditDriver = () => {
               </span>
             </div>
 
-            {/* Driver search */}
             <div className="space-y-1">
               <label className="text-[11px] font-medium text-slate-200">
                 Search drivers
@@ -1000,7 +949,7 @@ const cancelEditDriver = () => {
                             <td className="px-3 py-2 text-slate-100">
                               {driver.license_number || "N/A"}
                             </td>
-                          <td className="px-3 py-2 text-slate-100">
+                            <td className="px-3 py-2 text-slate-100">
                               {driver.phone && phoneDigits.length === 10 ? (
                                 <a
                                   href={`tel:${phoneDigits}`}
@@ -1014,7 +963,9 @@ const cancelEditDriver = () => {
                                   <span>{driver.phone}</span>
                                 </span>
                               ) : (
-                                <span className="text-slate-500 text-[11px]">No number</span>
+                                <span className="text-slate-500 text-[11px]">
+                                  No number
+                                </span>
                               )}
                             </td>
 
@@ -1067,9 +1018,7 @@ const cancelEditDriver = () => {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() =>
-                                    handleSetDriverPin(driver)
-                                  }
+                                  onClick={() => handleSetDriverPin(driver)}
                                   className="btn-ghost px-3 py-1 text-[11px]"
                                   disabled={loading}
                                 >
@@ -1104,9 +1053,6 @@ const cancelEditDriver = () => {
               <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">
                 Vehicles
               </h2>
-              <span className="text-[11px] text-slate-400">
-                {vehicles.length} total
-              </span>
             </div>
 
             <div className="space-y-2 rounded-xl bg-slate-950/50 p-3">
@@ -1195,7 +1141,6 @@ const cancelEditDriver = () => {
                       key={vehicle.id}
                       className="rounded-lg bg-slate-900/80 p-2 hover:bg-slate-900"
                     >
-                      {/* Collapsed header */}
                       <div className="flex items-center justify-between gap-2">
                         <div className="max-w-[70%]">
                           <p className="text-sm font-semibold text-slate-100">
@@ -1244,7 +1189,6 @@ const cancelEditDriver = () => {
                         </div>
                       </div>
 
-                      {/* Expanded edit form */}
                       {isEditing && (
                         <div className="mt-2 space-y-2 rounded-xl bg-slate-950/80 p-3">
                           <p className="text-[11px] font-semibold text-slate-200">
@@ -1369,7 +1313,6 @@ const cancelEditDriver = () => {
       {/* INSPECTIONS TAB */}
       {activeTab === "inspections" && (
         <section className="space-y-4">
-          {/* Header + search + actions */}
           <section className="card space-y-3">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -1400,7 +1343,6 @@ const cancelEditDriver = () => {
               </div>
             </div>
 
-            {/* Search bar */}
             <div className="space-y-1">
               <label className="text-[11px] font-medium text-slate-200">
                 Search inspections
@@ -1415,7 +1357,6 @@ const cancelEditDriver = () => {
             </div>
           </section>
 
-          {/* Table + summary */}
           <section className="card space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-[11px] text-slate-400">
@@ -1532,13 +1473,12 @@ const cancelEditDriver = () => {
                           </td>
                           <td className="px-2 py-1">
                             <Link
-                                href={`/inspection/${rec.id}?from=admin-inspections`}
-                                className="btn-ghost px-2 py-1 text-[11px]"
+                              href={`/inspection/${rec.id}?from=admin-inspections`}
+                              className="btn-ghost px-2 py-1 text-[11px]"
                             >
-                                Open form
+                              Open form
                             </Link>
-                           </td>
-
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1556,6 +1496,9 @@ const cancelEditDriver = () => {
         </section>
       )}
 
+      {/* STUDENTS TAB */}
+      {activeTab === "students" && <StudentsAdminSection />}
+
       {/* TIMECARDS TAB */}
       {activeTab === "timecards" && (
         <TimecardsAdminSection drivers={drivers} />
@@ -1564,43 +1507,243 @@ const cancelEditDriver = () => {
   );
 }
 
-// ---------- TIMECARDS ADMIN SECTION ----------
+// ======================================================
+//              STUDENTS ADMIN SUBCOMPONENT
+// ======================================================
+
+type StudentRow = {
+  id: string;
+  full_name: string;
+  student_id: string | null;
+  pickup_address: string;
+  is_active: boolean;
+  school_name: string | null;
+};
+
+function StudentsAdminSection() {
+  const router = useRouter();
+  const [students, setStudents] = useState<StudentRow[]>([]);
+  const [filteredStudents, setFilteredStudents] = useState<StudentRow[]>([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadStudents() {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const { data: studentData, error: studentErr } = await supabase
+          .from("students")
+          .select(
+            "id, full_name, student_id, pickup_address, is_active, school_id",
+          )
+          .order("full_name", { ascending: true });
+
+        if (studentErr) throw studentErr;
+
+        const rawStudents = (studentData || []) as any[];
+
+        const { data: schoolsData, error: schoolErr } = await supabase
+          .from("schools")
+          .select("id, name");
+
+        if (schoolErr) throw schoolErr;
+
+        const schoolMap = new Map<string, string>();
+        (schoolsData || []).forEach((s: any) => {
+          if (s.id && s.name) schoolMap.set(s.id, s.name);
+        });
+
+        const mapped: StudentRow[] = rawStudents.map((row) => ({
+          id: row.id,
+          full_name: row.full_name,
+          student_id: row.student_id,
+          pickup_address: row.pickup_address,
+          is_active: row.is_active,
+          school_name: row.school_id ? schoolMap.get(row.school_id) ?? null : null,
+        }));
+
+        if (!isMounted) return;
+        setStudents(mapped);
+        setFilteredStudents(mapped);
+      } catch (err: any) {
+        console.error("Error loading students:", err);
+        if (!isMounted) return;
+        setError("Failed to load students. Please try again.");
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    }
+
+    loadStudents();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const s = search.trim().toLowerCase();
+    if (!s) {
+      setFilteredStudents(students);
+      return;
+    }
+
+    setFilteredStudents(
+      students.filter((st) => {
+        return (
+          st.full_name.toLowerCase().includes(s) ||
+          (st.student_id && st.student_id.toLowerCase().includes(s)) ||
+          (st.school_name && st.school_name.toLowerCase().includes(s))
+        );
+      }),
+    );
+  }, [search, students]);
+
+  return (
+    <div className="mt-4 space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-white">Students</h2>
+          <p className="text-xs text-slate-400">
+            Manage student records, school assignments, and route eligibility.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            placeholder="Search by name, ID, or school..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full max-w-xs rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500"
+          />
+          <button
+            onClick={() => router.push("/admin/students/new")}
+            className="btn-primary whitespace-nowrap px-3 py-1.5 text-xs"
+          >
+            + Add student
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 shadow-lg shadow-black/40">
+        {loading ? (
+          <div className="py-10 text-center text-sm text-slate-400">
+            Loading students...
+          </div>
+        ) : error ? (
+          <div className="py-6 text-center text-sm text-rose-400">{error}</div>
+        ) : filteredStudents.length === 0 ? (
+          <div className="py-10 text-center text-sm text-slate-400">
+            No students found. Click &ldquo;Add student&rdquo; to create one.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-xs text-slate-200">
+              <thead>
+                <tr className="border-b border-slate-800 bg-slate-900/80">
+                  <th className="sticky left-0 z-10 bg-slate-900/80 px-3 py-2 font-semibold">
+                    Student
+                  </th>
+                  <th className="px-3 py-2 font-semibold">Student ID</th>
+                  <th className="px-3 py-2 font-semibold">School</th>
+                  <th className="px-3 py-2 font-semibold">Pickup address</th>
+                  <th className="px-3 py-2 font-semibold">Status</th>
+                  <th className="px-3 py-2 font-semibold text-right">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredStudents.map((st) => (
+                  <tr
+                    key={st.id}
+                    className="border-b border-slate-900/60 hover:bg-slate-900/50"
+                  >
+                    <td className="sticky left-0 z-10 bg-slate-950/90 px-3 py-2 text-xs font-medium">
+                      {st.full_name}
+                    </td>
+                    <td className="px-3 py-2 text-[11px] text-slate-300">
+                      {st.student_id || <span className="text-slate-500">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-[11px] text-slate-300">
+                      {st.school_name || <span className="text-slate-500">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-[11px] text-slate-300">
+                      <span className="line-clamp-2 max-w-xs">
+                        {st.pickup_address}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-[11px]">
+                      {st.is_active ? (
+                        <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300 ring-1 ring-emerald-500/40">
+                          Active
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full bg-slate-700/30 px-2 py-0.5 text-[10px] font-semibold text-slate-300 ring-1 ring-slate-600/60">
+                          Inactive
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right text-[11px]">
+                      <button
+                        onClick={() => router.push(`/admin/students/${st.id}`)}
+                        className="btn-ghost px-3 py-1 text-[11px]"
+                      >
+                        View / Edit
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ======================================================
+//              TIMECARDS ADMIN SUBCOMPONENT
+// ======================================================
 
 function TimecardsAdminSection({ drivers }: { drivers: Driver[] }) {
-  // Local state for this section
   const [summaries, setSummaries] = useState<DriverTimeSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Start of the currently selected week (Sunday)
   const [weekStart, setWeekStart] = useState<string>(() => {
     const start = getWeekStart(new Date());
     return formatYMD(start);
   });
 
-// Sun–Sat dates for the current weekStart
-const weekDays = useMemo(() => {
-  const start = new Date(`${weekStart}T00:00:00`);
-  if (Number.isNaN(start.getTime())) return [];
+  const weekDays = useMemo(() => {
+    const start = new Date(`${weekStart}T00:00:00`);
+    if (Number.isNaN(start.getTime())) return [];
 
-  const days: { date: string; pretty: string; label: string }[] = [];
+    const days: { date: string; pretty: string; label: string }[] = [];
 
-  for (let i = 0; i < 7; i += 1) {
-    const d = new Date(
-      start.getFullYear(),
-      start.getMonth(),
-      start.getDate() + i,
-    );
+    for (let i = 0; i < 7; i += 1) {
+      const d = new Date(
+        start.getFullYear(),
+        start.getMonth(),
+        start.getDate() + i,
+      );
 
-    days.push({
-      date: formatYMD(d),       // YYYY-MM-DD
-      pretty: formatPretty(d),  // e.g. "Nov 24"
-      label: WEEKDAY_LABELS[i], // "Sun", "Mon", ..., "Sat"
-    });
-  }
+      days.push({
+        date: formatYMD(d),
+        pretty: formatPretty(d),
+        label: WEEKDAY_LABELS[i],
+      });
+    }
 
-  return days;
-}, [weekStart]);
+    return days;
+  }, [weekStart]);
 
   const weekPrettyRange = useMemo(() => {
     if (weekDays.length === 0) return "";
@@ -1609,7 +1752,6 @@ const weekDays = useMemo(() => {
     return `${first.pretty} – ${last.pretty}`;
   }, [weekDays]);
 
-  // Load time entries for the current week
   useEffect(() => {
     const load = async () => {
       setLoading(true);
@@ -1666,7 +1808,6 @@ const weekDays = useMemo(() => {
                 ),
               );
           } else {
-            // still-open clock, count up to "now"
             dur = Math.max(
               0,
               Math.floor(
@@ -1695,23 +1836,21 @@ const weekDays = useMemo(() => {
     load();
   }, [drivers, weekDays]);
 
- // Move backwards/forwards by whole weeks
-const handleShiftWeek = (deltaWeeks: number) => {
-  const current = new Date(`${weekStart}T00:00:00`);
-  if (Number.isNaN(current.getTime())) return;
+  const handleShiftWeek = (deltaWeeks: number) => {
+    const current = new Date(`${weekStart}T00:00:00`);
+    if (Number.isNaN(current.getTime())) return;
 
-  const shifted = new Date(
-    current.getFullYear(),
-    current.getMonth(),
-    current.getDate() + deltaWeeks * 7,
-  );
-  const start = getWeekStart(shifted);
-  setWeekStart(formatYMD(start));
-};
+    const shifted = new Date(
+      current.getFullYear(),
+      current.getMonth(),
+      current.getDate() + deltaWeeks * 7,
+    );
+    const start = getWeekStart(shifted);
+    setWeekStart(formatYMD(start));
+  };
 
   return (
     <div className="space-y-4">
-      {/* Header / controls */}
       <section className="card space-y-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -1741,7 +1880,6 @@ const handleShiftWeek = (deltaWeeks: number) => {
               </button>
             </div>
 
-            {/* NEW: Live Clock link */}
             <Link
               href="/admin/timecards/live"
               className="btn-ghost px-3 py-1 text-[11px]"
@@ -1760,22 +1898,18 @@ const handleShiftWeek = (deltaWeeks: number) => {
         </p>
       </section>
 
-
       {error && (
         <section className="card border border-red-500/50 bg-red-950/40">
           <p className="text-sm font-medium text-red-200">{error}</p>
         </section>
       )}
 
-      {/* Summary table */}
       <section className="card space-y-3">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">
             Weekly hours by driver
           </h3>
-          {loading && (
-            <span className="text-xs text-slate-400">Loading…</span>
-          )}
+          {loading && <span className="text-xs text-slate-400">Loading…</span>}
         </div>
 
         {(!drivers || drivers.length === 0) && !loading ? (
