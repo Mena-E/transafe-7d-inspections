@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -20,6 +21,19 @@ type Student = {
   school_id: string | null;
   is_active: boolean;
   created_at: string;
+  primary_guardian_name: string| null,
+  primary_guardian_phone: string| null,
+  primary_guardian_relationship: string | null,
+};
+
+type GuardianWithLink = {
+  linkId: string; // id from student_guardians
+  id: string; // guardian.id
+  full_name: string;
+  phone: string | null;
+  email: string | null;
+  preferred_contact_method: string | null;
+  relationship: string | null;
 };
 
 type PageProps = {
@@ -43,15 +57,32 @@ export default function AdminStudentDetailPage({ params }: PageProps) {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  // --- guardians state ---
+  const [guardians, setGuardians] = useState<GuardianWithLink[]>([]);
+  const [loadingGuardians, setLoadingGuardians] = useState(false);
+  const [showGuardianForm, setShowGuardianForm] = useState(false);
+  const [savingGuardian, setSavingGuardian] = useState(false);
+
+  const [guardianName, setGuardianName] = useState("");
+  const [guardianPhone, setGuardianPhone] = useState("");
+  const [guardianEmail, setGuardianEmail] = useState("");
+  const [guardianRelationship, setGuardianRelationship] = useState("");
+  const [guardianPreferredContact, setGuardianPreferredContact] = useState<
+    "call" | "text" | "email"
+  >("call");
+
   // form state
   const [fullName, setFullName] = useState("");
   const [studentNumber, setStudentNumber] = useState("");
-  const [pickupAddress, setPickupAddress] = useState("");
+  const [primaryGuardianName, setPrimaryGuardianName] = useState("");
   const [pickupCity, setPickupCity] = useState("");
   const [pickupState, setPickupState] = useState("MA");
   const [pickupZip, setPickupZip] = useState("");
   const [schoolId, setSchoolId] = useState<string | "">("");
   const [isActive, setIsActive] = useState(true);
+  const [primaryGuardianPhone, setPrimaryGuardianPhone] = useState("");
+  const [primaryGuardianRelationship, setPrimaryGuardianRelationship] = useState("");
+  const [pickupAddress, setPickupAddress] = useState("");
 
   // --- unwrap params Promise once on mount ---
   useEffect(() => {
@@ -125,23 +156,27 @@ export default function AdminStudentDetailPage({ params }: PageProps) {
 
       try {
         const { data, error } = await supabase
-          .from("students")
-          .select(
+        .from("students")
+        .select(
             `
-              id,
-              full_name,
-              student_id,
-              pickup_address,
-              pickup_city,
-              pickup_state,
-              pickup_zip,
-              school_id,
-              is_active,
-              created_at
+            id,
+            full_name,
+            student_id,
+            pickup_address,
+            pickup_city,
+            pickup_state,
+            pickup_zip,
+            school_id,
+            is_active,
+            created_at,
+            primary_guardian_name,
+            primary_guardian_phone,
+            primary_guardian_relationship
             `,
-          )
-          .eq("id", studentIdPk)
-          .maybeSingle();
+        )
+        .eq("id", studentIdPk)
+        .maybeSingle();
+
 
         if (error) throw error;
         if (!data) {
@@ -158,6 +193,9 @@ export default function AdminStudentDetailPage({ params }: PageProps) {
         setPickupZip(s.pickup_zip ?? "");
         setSchoolId(s.school_id ?? "");
         setIsActive(s.is_active);
+        setPrimaryGuardianName(s.primary_guardian_name ?? "");
+        setPrimaryGuardianPhone(s.primary_guardian_phone ?? "");
+        setPrimaryGuardianRelationship(s.primary_guardian_relationship ?? "");
       } catch (err: any) {
         console.error(err);
         setError(err.message ?? "Failed to load student.");
@@ -167,6 +205,70 @@ export default function AdminStudentDetailPage({ params }: PageProps) {
     };
 
     loadStudent();
+  }, [isAuthed, studentIdPk]);
+
+  // --- load guardians for this student ---
+  useEffect(() => {
+    if (!isAuthed || !studentIdPk) return;
+
+    const loadGuardians = async () => {
+      setLoadingGuardians(true);
+      try {
+        const { data: sgRows, error: sgErr } = await supabase
+          .from("student_guardians")
+          .select("id, guardian_id, relationship")
+          .eq("student_id", studentIdPk);
+
+        if (sgErr) throw sgErr;
+
+        const joinRows = (sgRows || []) as {
+          id: string;
+          guardian_id: string;
+          relationship: string | null;
+        }[];
+
+        if (joinRows.length === 0) {
+          setGuardians([]);
+          return;
+        }
+
+        const guardianIds = joinRows.map((row) => row.guardian_id);
+
+        const { data: gRows, error: gErr } = await supabase
+          .from("guardians")
+          .select("id, full_name, phone, email, preferred_contact_method")
+          .in("id", guardianIds);
+
+        if (gErr) throw gErr;
+
+        const map = new Map<string, any>();
+        (gRows || []).forEach((g: any) => {
+          map.set(g.id, g);
+        });
+
+        const combined: GuardianWithLink[] = joinRows.map((row) => {
+          const g = map.get(row.guardian_id);
+          return {
+            linkId: row.id,
+            id: row.guardian_id,
+            full_name: g?.full_name ?? "Unknown guardian",
+            phone: g?.phone ?? null,
+            email: g?.email ?? null,
+            preferred_contact_method: g?.preferred_contact_method ?? null,
+            relationship: row.relationship ?? null,
+          };
+        });
+
+        setGuardians(combined);
+      } catch (err: any) {
+        console.error(err);
+        setError(err.message ?? "Failed to load guardians.");
+      } finally {
+        setLoadingGuardians(false);
+      }
+    };
+
+    loadGuardians();
   }, [isAuthed, studentIdPk]);
 
   const selectedSchoolName = useMemo(() => {
@@ -198,7 +300,11 @@ export default function AdminStudentDetailPage({ params }: PageProps) {
         pickup_zip: pickupZip.trim() || null,
         school_id: schoolId || null,
         is_active: isActive,
-      };
+        primary_guardian_name: primaryGuardianName.trim() || null,
+        primary_guardian_phone: primaryGuardianPhone.trim() || null,
+        primary_guardian_relationship: primaryGuardianRelationship.trim() || null,
+        };
+
 
       const { error } = await supabase
         .from("students")
@@ -217,13 +323,100 @@ export default function AdminStudentDetailPage({ params }: PageProps) {
     }
   };
 
-  const handleBackToStudents = () => {
-  // Force the admin page to reopen on the Students tab
-  if (typeof window !== "undefined") {
-    window.localStorage.setItem("transafe_admin_last_tab", "students");
-  }
-  router.push("/admin");
-};
+  const handleAddGuardian = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!studentIdPk) return;
+
+    if (!guardianName.trim() || !guardianPhone.trim()) {
+      setError("Guardian name and phone are required.");
+      return;
+    }
+
+    setSavingGuardian(true);
+    setError(null);
+
+    try {
+      // 1) Create guardian
+      const { data: newGuardian, error: gErr } = await supabase
+        .from("guardians")
+        .insert({
+          full_name: guardianName.trim(),
+          phone: guardianPhone.trim(),
+          email: guardianEmail.trim() || null,
+          preferred_contact_method: guardianPreferredContact,
+        })
+        .select()
+        .single();
+
+      if (gErr) throw gErr;
+
+      // 2) Link guardian to this student
+      const { data: linkRow, error: linkErr } = await supabase
+        .from("student_guardians")
+        .insert({
+          student_id: studentIdPk,
+          guardian_id: newGuardian.id,
+          relationship: guardianRelationship.trim() || null,
+        })
+        .select()
+        .single();
+
+      if (linkErr) throw linkErr;
+
+      // 3) Update local state
+      setGuardians((prev) => [
+        ...prev,
+        {
+          linkId: (linkRow as any).id,
+          id: newGuardian.id,
+          full_name: newGuardian.full_name,
+          phone: newGuardian.phone,
+          email: newGuardian.email,
+          preferred_contact_method: newGuardian.preferred_contact_method,
+          relationship: (linkRow as any).relationship,
+        },
+      ]);
+
+      // Reset form
+      setGuardianName("");
+      setGuardianPhone("");
+      setGuardianEmail("");
+      setGuardianRelationship("");
+      setGuardianPreferredContact("call");
+      setShowGuardianForm(false);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message ?? "Failed to add guardian.");
+    } finally {
+      setSavingGuardian(false);
+    }
+  };
+
+  const handleRemoveGuardian = async (linkId: string) => {
+    const confirmed = window.confirm(
+      "Remove this guardian from the student? The guardian record itself will remain in the system."
+    );
+    if (!confirmed) return;
+
+    setSavingGuardian(true);
+    setError(null);
+
+    try {
+      const { error: delErr } = await supabase
+        .from("student_guardians")
+        .delete()
+        .eq("id", linkId);
+
+      if (delErr) throw delErr;
+
+      setGuardians((prev) => prev.filter((g) => g.linkId !== linkId));
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message ?? "Failed to remove guardian.");
+    } finally {
+      setSavingGuardian(false);
+    }
+  };
 
   if (checkingAuth || !studentIdPk) {
     return (
@@ -236,26 +429,29 @@ export default function AdminStudentDetailPage({ params }: PageProps) {
   if (!isAuthed) {
     return (
       <div className="card">
-        <p className="text-sm text-slate-200">Redirecting to admin login…</p>
+        <p className="text-sm text-slate-200">
+          Redirecting to admin login…
+        </p>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
+      {/* Header / Back link */}
       <section className="card flex items-center justify-between">
-        <button
-          type="button"
-          onClick={handleBackToStudents}
+        <Link
+          href="/admin?tab=students"
           className="text-[11px] text-emerald-300 hover:text-emerald-200"
         >
           ← Back to Students
-        </button>
+        </Link>
         <span className="text-[11px] text-slate-400">
           Student detail &amp; profile
         </span>
       </section>
 
+      {/* Student core info */}
       <section className="card space-y-4">
         <div className="flex flex-col gap-1">
           <h1 className="text-base font-semibold text-slate-50">
@@ -382,6 +578,56 @@ export default function AdminStudentDetailPage({ params }: PageProps) {
           </div>
 
           <div className="space-y-2">
+            <section className="mt-2 space-y-2 rounded-xl bg-slate-950/40 p-3">
+                <h2 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+                    Primary guardian & contact
+                </h2>
+                <p className="text-[11px] text-slate-400">
+                    This guardian will be shown to drivers as the main tap-to-call contact.
+                </p>
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="space-y-2">
+                    <label className="text-[11px] font-medium text-slate-200">
+                        Guardian name
+                    </label>
+                    <input
+                        type="text"
+                        value={primaryGuardianName}
+                        onChange={(e) => setPrimaryGuardianName(e.target.value)}
+                        className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+                        placeholder="e.g. Jane Doe"
+                    />
+                    </div>
+
+                    <div className="space-y-2">
+                    <label className="text-[11px] font-medium text-slate-200">
+                        Phone (tap-to-call)
+                    </label>
+                    <input
+                        type="tel"
+                        value={primaryGuardianPhone}
+                        onChange={(e) => setPrimaryGuardianPhone(e.target.value)}
+                        className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+                        placeholder="e.g. (617) 555-1234"
+                    />
+                    </div>
+
+                    <div className="space-y-2">
+                    <label className="text-[11px] font-medium text-slate-200">
+                        Relationship
+                    </label>
+                    <input
+                        type="text"
+                        value={primaryGuardianRelationship}
+                        onChange={(e) => setPrimaryGuardianRelationship(e.target.value)}
+                        className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+                        placeholder="e.g. Mother, Case Worker"
+                    />
+                    </div>
+                </div>
+                </section>
+
             <label className="text-[11px] font-medium text-slate-200">
               Status
             </label>
@@ -421,6 +667,199 @@ export default function AdminStudentDetailPage({ params }: PageProps) {
             </button>
           </div>
         </form>
+      </section>
+
+      {/* Guardians & contacts */}
+      <section className="card space-y-4">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-50">
+              Guardians &amp; contacts
+            </h2>
+            <p className="text-[11px] text-slate-400">
+              Add parents, case workers, or other contacts for this student.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowGuardianForm((v) => !v)}
+            className="btn-ghost px-3 py-1 text-[11px]"
+          >
+            {showGuardianForm ? "Cancel" : "+ Add guardian"}
+          </button>
+        </div>
+
+        {loadingGuardians ? (
+          <p className="text-[11px] text-slate-400">Loading guardians…</p>
+        ) : guardians.length === 0 ? (
+          <p className="text-[11px] text-slate-400">
+            No guardians linked yet. Use &ldquo;Add guardian&rdquo; to create one.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {guardians.map((g) => {
+              const digits = (g.phone || "").replace(/\D/g, "");
+              const canCall = digits.length === 10;
+              return (
+                <div
+                  key={g.linkId}
+                  className="flex flex-col gap-2 rounded-xl bg-slate-950/60 p-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="space-y-1 text-xs">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-slate-100">
+                        {g.full_name}
+                      </span>
+                      {g.relationship && (
+                        <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] text-slate-300">
+                          {g.relationship}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {g.phone &&
+                        (canCall ? (
+                          <a
+                            href={`tel:${digits}`}
+                            className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-100 ring-1 ring-emerald-500/40"
+                          >
+                            <span>📞</span>
+                            <span>{g.phone}</span>
+                          </a>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-700/40 px-2.5 py-1 text-[11px] text-slate-100">
+                            <span>{g.phone}</span>
+                          </span>
+                        ))}
+                      {g.email && (
+                        <a
+                          href={`mailto:${g.email}`}
+                          className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2.5 py-1 text-[11px] font-semibold text-sky-100 ring-1 ring-sky-500/40"
+                        >
+                          <span>✉️</span>
+                          <span className="max-w-[160px] truncate">
+                            {g.email}
+                          </span>
+                        </a>
+                      )}
+                      {g.preferred_contact_method && (
+                        <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-slate-300">
+                          Prefers {g.preferred_contact_method}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-end gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveGuardian(g.linkId)}
+                      className="btn-ghost px-3 py-1 text-[11px] text-rose-300 hover:text-rose-200"
+                      disabled={savingGuardian}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {showGuardianForm && (
+          <form
+            onSubmit={handleAddGuardian}
+            className="mt-2 space-y-3 rounded-xl bg-slate-950/70 p-3"
+          >
+            <p className="text-[11px] font-semibold text-slate-200">
+              Add new guardian
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-200">
+                  Full name<span className="text-red-400"> *</span>
+                </label>
+                <input
+                  type="text"
+                  value={guardianName}
+                  onChange={(e) => setGuardianName(e.target.value)}
+                  className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-200">
+                  Relationship
+                </label>
+                <input
+                  type="text"
+                  value={guardianRelationship}
+                  onChange={(e) => setGuardianRelationship(e.target.value)}
+                  className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+                  placeholder="e.g. Mother, Case Worker"
+                />
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-200">
+                  Phone<span className="text-red-400"> *</span>
+                </label>
+                <input
+                  type="text"
+                  value={guardianPhone}
+                  onChange={(e) => setGuardianPhone(e.target.value)}
+                  className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+                  placeholder="e.g. 6175551234"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-200">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={guardianEmail}
+                  onChange={(e) => setGuardianEmail(e.target.value)}
+                  className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+                  placeholder="optional"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-200">
+                  Preferred contact
+                </label>
+                <select
+                  value={guardianPreferredContact}
+                  onChange={(e) =>
+                    setGuardianPreferredContact(
+                      e.target.value as "call" | "text" | "email"
+                    )
+                  }
+                  className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+                >
+                  <option value="call">Call</option>
+                  <option value="text">Text</option>
+                  <option value="email">Email</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowGuardianForm(false)}
+                className="btn-ghost px-3 py-1 text-[11px]"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingGuardian}
+                className="btn-primary px-4 py-1.5 text-[11px]"
+              >
+                {savingGuardian ? "Saving…" : "Save guardian"}
+              </button>
+            </div>
+          </form>
+        )}
       </section>
     </div>
   );

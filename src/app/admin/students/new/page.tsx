@@ -34,6 +34,10 @@ export default function AdminNewStudentPage() {
   const [pickupState, setPickupState] = useState("MA");
   const [pickupZip, setPickupZip] = useState("");
   const [schoolId, setSchoolId] = useState<string>("");
+  const [primaryGuardianName, setPrimaryGuardianName] = useState("");
+  const [primaryGuardianPhone, setPrimaryGuardianPhone] = useState("");
+  const [primaryGuardianRelationship, setPrimaryGuardianRelationship] = useState("");
+
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -101,6 +105,9 @@ export default function AdminNewStudentPage() {
         pickup_state: pickupState.trim() || null,
         pickup_zip: pickupZip.trim() || null,
         school_id: schoolId || null,
+        primary_guardian_name: primaryGuardianName.trim() || null,
+        primary_guardian_phone: primaryGuardianPhone.trim() || null,
+        primary_guardian_relationship: primaryGuardianRelationship.trim() || null,
         is_active: true,
       };
 

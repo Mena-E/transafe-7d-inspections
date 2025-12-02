@@ -125,8 +125,11 @@ function formatDuration(seconds: number): string {
 //                      ADMIN PAGE
 // ======================================================
 
+
 export default function AdminPage() {
   const router = useRouter();
+
+  const ADMIN_CODE = "032072"; // or any secret you like
 
   const [accessCodeInput, setAccessCodeInput] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -1517,8 +1520,15 @@ type StudentRow = {
   student_id: string | null;
   pickup_address: string;
   is_active: boolean;
+
+  // NEW – primary guardian inline on student
+  primary_guardian_name: string | null;
+  primary_guardian_phone: string | null;
+
+  // derived from schools
   school_name: string | null;
 };
+
 
 function StudentsAdminSection() {
   const router = useRouter();
@@ -1537,11 +1547,11 @@ function StudentsAdminSection() {
 
       try {
         const { data: studentData, error: studentErr } = await supabase
-          .from("students")
-          .select(
-            "id, full_name, student_id, pickup_address, is_active, school_id",
-          )
-          .order("full_name", { ascending: true });
+        .from("students")
+        .select(
+          "id, full_name, student_id, pickup_address, is_active, school_id, primary_guardian_name, primary_guardian_phone",
+        )
+        .order("full_name", { ascending: true });
 
         if (studentErr) throw studentErr;
 
@@ -1558,14 +1568,19 @@ function StudentsAdminSection() {
           if (s.id && s.name) schoolMap.set(s.id, s.name);
         });
 
-        const mapped: StudentRow[] = rawStudents.map((row) => ({
-          id: row.id,
-          full_name: row.full_name,
-          student_id: row.student_id,
-          pickup_address: row.pickup_address,
-          is_active: row.is_active,
-          school_name: row.school_id ? schoolMap.get(row.school_id) ?? null : null,
-        }));
+      const mapped: StudentRow[] = rawStudents.map((row) => ({
+        id: row.id,
+        full_name: row.full_name,
+        student_id: row.student_id,
+        pickup_address: row.pickup_address,
+        is_active: row.is_active,
+
+        primary_guardian_name: row.primary_guardian_name ?? null,
+        primary_guardian_phone: row.primary_guardian_phone ?? null,
+
+        school_name: row.school_id ? schoolMap.get(row.school_id) ?? null : null,
+      }));
+
 
         if (!isMounted) return;
         setStudents(mapped);
@@ -1595,14 +1610,49 @@ function StudentsAdminSection() {
 
     setFilteredStudents(
       students.filter((st) => {
+        const phoneDigits = (st.primary_guardian_phone || "").replace(/\D/g, "");
         return (
           st.full_name.toLowerCase().includes(s) ||
           (st.student_id && st.student_id.toLowerCase().includes(s)) ||
-          (st.school_name && st.school_name.toLowerCase().includes(s))
+          (st.school_name && st.school_name.toLowerCase().includes(s)) ||
+          (st.primary_guardian_name &&
+            st.primary_guardian_name.toLowerCase().includes(s)) ||
+          phoneDigits.includes(s.replace(/\D/g, ""))
         );
       }),
     );
   }, [search, students]);
+
+  const handleDeleteStudent = async (st: StudentRow) => {
+  const confirmed = window.confirm(
+    `Delete student "${st.full_name}"? This will remove them from routes and guardian links.`
+  );
+  if (!confirmed) return;
+
+  try {
+    setLoading(true);
+    setError(null);
+
+    // 1) Remove joins (if you don’t have ON DELETE CASCADE)
+    await supabase.from("student_guardians").delete().eq("student_id", st.id);
+
+    // 2) Remove route stops referencing this student (if no CASCADE)
+    await supabase.from("route_stops").delete().eq("student_id", st.id);
+
+    // 3) Delete student
+    const { error: delErr } = await supabase.from("students").delete().eq("id", st.id);
+    if (delErr) throw delErr;
+
+    // 4) Update UI
+    setStudents((prev) => prev.filter((s) => s.id !== st.id));
+    setFilteredStudents((prev) => prev.filter((s) => s.id !== st.id));
+  } catch (err: any) {
+    console.error(err);
+    setError(err?.message ?? "Failed to delete student.");
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div className="mt-4 space-y-4">
@@ -1645,39 +1695,74 @@ function StudentsAdminSection() {
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-xs text-slate-200">
               <thead>
-                <tr className="border-b border-slate-800 bg-slate-900/80">
-                  <th className="sticky left-0 z-10 bg-slate-900/80 px-3 py-2 font-semibold">
-                    Student
-                  </th>
-                  <th className="px-3 py-2 font-semibold">Student ID</th>
-                  <th className="px-3 py-2 font-semibold">School</th>
-                  <th className="px-3 py-2 font-semibold">Pickup address</th>
-                  <th className="px-3 py-2 font-semibold">Status</th>
-                  <th className="px-3 py-2 font-semibold text-right">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
+              <tr className="border-b border-slate-800 bg-slate-900/80">
+                <th className="sticky left-0 z-10 bg-slate-900/80 px-3 py-2 font-semibold">
+                  Student
+                </th>
+                <th className="px-3 py-2 font-semibold">Student ID</th>
+                <th className="px-3 py-2 font-semibold">Primary guardian</th>
+                <th className="px-3 py-2 font-semibold">School</th>
+                <th className="px-3 py-2 font-semibold">Pickup address</th>
+                <th className="px-3 py-2 font-semibold">Status</th>
+                <th className="px-3 py-2 font-semibold text-right">Actions</th>
+             </tr>
+             </thead>
+
               <tbody>
                 {filteredStudents.map((st) => (
-                  <tr
+                 <tr
                     key={st.id}
                     className="border-b border-slate-900/60 hover:bg-slate-900/50"
                   >
+                    {/* Student */}
                     <td className="sticky left-0 z-10 bg-slate-950/90 px-3 py-2 text-xs font-medium">
                       {st.full_name}
                     </td>
+
+                    {/* Student ID */}
                     <td className="px-3 py-2 text-[11px] text-slate-300">
                       {st.student_id || <span className="text-slate-500">—</span>}
                     </td>
+
+                    {/* Primary guardian */}
+                    <td className="px-3 py-2 text-[11px] text-slate-300">
+                      {st.primary_guardian_name && st.primary_guardian_phone ? (
+                        (() => {
+                          const digits = st.primary_guardian_phone.replace(/\D/g, "");
+                          const label =
+                            digits.length === 10
+                              ? `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`
+                              : st.primary_guardian_phone;
+
+                          return (
+                            <a
+                              href={`tel:${digits}`}
+                              className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-100 ring-1 ring-emerald-500/50 transition hover:bg-emerald-500/25 active:scale-[0.97]"
+                              title="Tap to call primary guardian"
+                            >
+                              <span className="text-[12px]">📞</span>
+                              <span className="truncate max-w-[220px]">
+                                {st.primary_guardian_name} • {label}
+                              </span>
+                            </a>
+                          );
+                        })()
+                      ) : (
+                        <span className="text-slate-500">No primary guardian</span>
+                      )}
+                    </td>
+
+                    {/* School */}
                     <td className="px-3 py-2 text-[11px] text-slate-300">
                       {st.school_name || <span className="text-slate-500">—</span>}
                     </td>
+
+                    {/* Pickup address */}
                     <td className="px-3 py-2 text-[11px] text-slate-300">
-                      <span className="line-clamp-2 max-w-xs">
-                        {st.pickup_address}
-                      </span>
+                      <span className="line-clamp-2 max-w-xs">{st.pickup_address}</span>
                     </td>
+
+                    {/* Status */}
                     <td className="px-3 py-2 text-[11px]">
                       {st.is_active ? (
                         <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300 ring-1 ring-emerald-500/40">
@@ -1689,13 +1774,24 @@ function StudentsAdminSection() {
                         </span>
                       )}
                     </td>
+
+                    {/* Actions */}
                     <td className="px-3 py-2 text-right text-[11px]">
-                      <button
-                        onClick={() => router.push(`/admin/students/${st.id}`)}
-                        className="btn-ghost px-3 py-1 text-[11px]"
-                      >
-                        View / Edit
-                      </button>
+                      <div className="inline-flex gap-1.5">
+                        <button
+                          onClick={() => router.push(`/admin/students/${st.id}`)}
+                          className="btn-ghost px-3 py-1 text-[11px]"
+                        >
+                          View / Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteStudent(st)}
+                          className="btn-ghost px-3 py-1 text-[11px] text-rose-300 hover:text-rose-200"
+                          title="Delete student"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
