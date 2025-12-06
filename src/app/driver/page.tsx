@@ -1513,16 +1513,17 @@ const loadTodayRoutes = async (driverId: string) => {
                 >
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
                     <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        {route.direction === "AM"
-                          ? "Morning route"
-                          : route.direction === "MIDDAY"
-                          ? "Midday route"
-                          : "Afternoon route"}
-                      </p>
-                      <h3 className="text-sm font-semibold text-slate-50">
-                        {route.name}
-                      </h3>
+                                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                      {route.direction === "AM"
+                        ? "Morning route"
+                        : route.direction === "MIDDAY"
+                        ? "Midday route"
+                        : "Afternoon route"}
+                    </p>
+                    <h3 className="text-base font-semibold text-slate-50">
+                      {route.name}
+                    </h3>
+                    
                     </div>
                     <div className="text-[11px] text-slate-400">
                       {route.effective_start_date && (
@@ -1551,112 +1552,200 @@ const loadTodayRoutes = async (driverId: string) => {
                       </p>
                     ) : (
                       <div className="mt-2 space-y-1.5">
-                        {stops.map((stop) => {
-                          // Determine home vs school based on stop_type
-                          const isHomeStop =
-                            stop.stop_type === "pickup_home" ||
-                            stop.stop_type === "dropoff_home";
+                          {stops.map((stop) => {
+                            // Determine home vs school based on stop_type
+                            const isHomeStop =
+                              stop.stop_type === "pickup_home" ||
+                              stop.stop_type === "dropoff_home";
 
-                          const isSchoolStop =
-                            stop.stop_type === "pickup_school" ||
-                            stop.stop_type === "dropoff_school";
+                            const isSchoolStop =
+                              stop.stop_type === "pickup_school" ||
+                              stop.stop_type === "dropoff_school";
 
-                          // Decide Pick up vs Drop off strictly from stop_type
-                          let actionLabel = "Stop";
-                          if (
-                            stop.stop_type === "pickup_home" ||
-                            stop.stop_type === "pickup_school"
-                          ) {
-                            actionLabel = "Pick up";
-                          } else if (
-                            stop.stop_type === "dropoff_home" ||
-                            stop.stop_type === "dropoff_school"
-                          ) {
-                            actionLabel = "Drop off";
-                          }
+                            // Decide Pick up vs Drop off strictly from stop_type
+                            let actionLabel = "Stop";
+                            if (
+                              stop.stop_type === "pickup_home" ||
+                              stop.stop_type === "pickup_school"
+                            ) {
+                              actionLabel = "Pick up";
+                            } else if (
+                              stop.stop_type === "dropoff_home" ||
+                              stop.stop_type === "dropoff_school"
+                            ) {
+                              actionLabel = "Drop off";
+                            }
 
-                          // Student name to show after the action
-                          const studentLabel = stop.student_name || "student";
+                            // Student name to show after the action
+                            const studentLabel = stop.student_name || "student";
 
-                          // Contacts logic – home stops: guardian; school stops: school
-                          const canCallGuardian =
-                            isHomeStop &&
-                            !!stop.primary_guardian_name &&
-                            !!stop.primary_guardian_phone;
+                            // Contacts logic – home stops: guardian; school stops: school
+                            const canCallGuardian =
+                              isHomeStop &&
+                              !!stop.primary_guardian_name &&
+                              !!stop.primary_guardian_phone;
 
-                          const canCallSchool =
-                            isSchoolStop && !!stop.name && !!stop.phone;
+                            const canCallSchool =
+                              isSchoolStop && !!stop.name && !!stop.phone;
 
-                          return (
-                            <div
-                              key={stop.id}
-                              className="flex items-start gap-2 rounded-lg bg-slate-900/70 px-2 py-2"
-                            >
-                              {/* Sequence number */}
-                              <span className="w-6 text-[11px] font-semibold text-slate-400">
-                                {stop.sequence}.
-                              </span>
+                            return (
+                              <div
+                                key={stop.id}
+                                className="flex items-start gap-3 rounded-xl bg-slate-900/80 px-3 py-3"
+                              >
+                                {/* Sequence number */}
+                                <span className="mt-1 w-6 text-xs font-semibold text-slate-400">
+                                  {stop.sequence}.
+                                </span>
 
-                              {/* Main stop content */}
-                              <div className="flex-1 space-y-0.5">
-                                {/* Action + student name */}
-                                <p className="text-[12px] font-semibold text-slate-50">
-                                  {actionLabel} {studentLabel}
-                                </p>
+                                {/* Main stop content */}
+                                <div className="flex-1 space-y-1.5">
+                                  {/* Planned time – first line, more prominent */}
+                                  {stop.planned_time && (
+                                    <p className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200">
+                                      Planned:{" "}
+                                      <span className="ml-1 text-[11px] font-bold tracking-normal text-emerald-100">
+                                        {stop.planned_time}
+                                      </span>
+                                    </p>
+                                  )}
 
-                                {/* Address */}
-                                <p className="text-[11px] text-slate-200">
-                                  {stop.address || "Address not set"}
-                                </p>
-
-                                {/* For school stops, also show the school name clearly */}
-                                {isSchoolStop && stop.name && (
-                                  <p className="text-[11px] text-slate-300">
-                                    School:{" "}
-                                    <span className="font-medium text-slate-100">
-                                      {stop.name}
-                                    </span>
+                                  {/* Action + student name */}
+                                  <p className="text-sm font-semibold text-slate-50">
+                                    {actionLabel} {studentLabel}
                                   </p>
-                                )}
 
-                                {/* Planned time */}
-                                {stop.planned_time && (
-                                  <p className="text-[11px] text-emerald-200">
-                                    Planned: {stop.planned_time}
+                                  {/* Address */}
+                                  <p className="text-xs text-slate-200">
+                                    {stop.address || "Address not set"}
                                   </p>
-                                )}
 
-                                {/* Contacts – only show what's appropriate for this stop type */}
-                                {(canCallGuardian || canCallSchool) && (
-                                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                    {canCallGuardian && (
+                                  {/* For school stops, also show the school name clearly */}
+                                  {isSchoolStop && stop.name && (
+                                    <p className="text-xs text-slate-300">
+                                      School:{" "}
+                                      <span className="font-medium text-slate-100">
+                                        {stop.name}
+                                      </span>
+                                    </p>
+                                  )}
+
+                                  {/* Navigation buttons */}
+                                  {stop.address && (
+                                    <div className="mt-1 flex flex-wrap gap-1.5">
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          window.location.href = `tel:${stop.primary_guardian_phone}`;
+                                          // Open this stop in Google Maps
+                                          const dest = encodeURIComponent(stop.address as string);
+                                          window.location.href = `https://www.google.com/maps/dir/?api=1&destination=${dest}`;
                                         }}
                                         className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 active:scale-[0.97]"
                                       >
-                                        Call guardian: {stop.primary_guardian_name}
+                                        <span className="flex items-center gap-1">
+                                          {/* Simple map pin icon */}
+                                          <svg
+                                            aria-hidden="true"
+                                            className="h-3 w-3"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            xmlns="http://www.w3.org/2000/svg"
+                                          >
+                                            <path
+                                              d="M12 2.75C8.824 2.75 6.25 5.324 6.25 8.5C6.25 12.438 10.06 16.41 11.52 17.84C11.79 18.11 12.21 18.11 12.48 17.84C13.94 16.41 17.75 12.438 17.75 8.5C17.75 5.324 15.176 2.75 12 2.75Z"
+                                              stroke="currentColor"
+                                              strokeWidth="1.6"
+                                              strokeLinecap="round"
+                                              strokeLinejoin="round"
+                                            />
+                                            <circle
+                                              cx="12"
+                                              cy="8.5"
+                                              r="2.25"
+                                              stroke="currentColor"
+                                              strokeWidth="1.6"
+                                            />
+                                          </svg>
+                                          <span>Maps</span>
+                                        </span>
                                       </button>
-                                    )}
-                                    {canCallSchool && (
+
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          window.location.href = `tel:${stop.phone}`;
+                                          // Open this stop in Waze
+                                          const dest = encodeURIComponent(stop.address as string);
+                                          // Waze universal link – will open the app if installed, or website otherwise
+                                          window.location.href = `https://waze.com/ul?q=${dest}&navigate=yes`;
                                         }}
-                                        className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 active:scale-[0.97]"
+                                        className="inline-flex items-center rounded-full border border-blue-500/60 bg-blue-500/10 px-2.5 py-1 text-[11px] font-semibold text-blue-200 active:scale-[0.97]"
                                       >
-                                        Call school: {stop.name}
+                                        <span className="flex items-center gap-1">
+                                          {/* Simple car/bubble icon */}
+                                          <svg
+                                            aria-hidden="true"
+                                            className="h-3 w-3"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            xmlns="http://www.w3.org/2000/svg"
+                                          >
+                                            <path
+                                              d="M4.5 14.5C4.5 11.462 6.962 9 10 9H14C17.038 9 19.5 11.462 19.5 14.5C19.5 16.985 17.485 19 15 19H14L12 21L10.5 19.75"
+                                              stroke="currentColor"
+                                              strokeWidth="1.6"
+                                              strokeLinecap="round"
+                                              strokeLinejoin="round"
+                                            />
+                                            <circle
+                                              cx="9.25"
+                                              cy="14.5"
+                                              r="1.25"
+                                              fill="currentColor"
+                                            />
+                                            <circle
+                                              cx="15"
+                                              cy="14.5"
+                                              r="1.25"
+                                              fill="currentColor"
+                                            />
+                                          </svg>
+                                          <span>Waze</span>
+                                        </span>
                                       </button>
-                                    )}
-                                  </div>
-                                )}
+                                    </div>
+                                  )}
+
+                                  {/* Contacts – only show what's appropriate for this stop type */}
+                                  {(canCallGuardian || canCallSchool) && (
+                                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                      {canCallGuardian && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            window.location.href = `tel:${stop.primary_guardian_phone}`;
+                                          }}
+                                          className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 active:scale-[0.97]"
+                                        >
+                                          Call guardian: {stop.primary_guardian_name}
+                                        </button>
+                                      )}
+                                      {canCallSchool && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            window.location.href = `tel:${stop.phone}`;
+                                          }}
+                                          className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 active:scale-[0.97]"
+                                        >
+                                          Call school: {stop.name}
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
                       </div>
                     )}
                 </div>
