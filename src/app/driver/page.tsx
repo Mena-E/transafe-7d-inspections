@@ -1359,64 +1359,62 @@ const loadTodayRoutes = async (driverId: string) => {
 
   // 2) Session ready – main driver view
   return (
-    <div className="space-y-5">
-      {/* Header with live clock */}
-      <section className="card flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="space-y-1">
-          <h1 className="mb-1 text-lg font-semibold md:text-xl">
-            Driver Portal
-          </h1>
-          <p className="text-sm text-slate-200/80">
-            Signed in as{" "}
-            <span className="font-semibold text-emerald-200">
-              {driverName.trim()}
-            </span>
-          </p>
-          <p className="text-xs text-slate-300">
-            License #: {currentDriver?.license_number ?? "N/A"}
-          </p>
-          {selectedVehicle ? (
-            <>
-              <p className="mt-1 text-sm font-semibold text-emerald-200">
-                Vehicle ID: {selectedVehicle.label}
-              </p>
-              <p className="text-xs font-medium text-slate-100">
-                Plate: {selectedVehicle.plate || "N/A"}
-              </p>
-              {vehicleMainLine && (
-                <p className="text-[11px] text-slate-400">
-                  Year/Make/Model: {vehicleMainLine}
+          <div className="space-y-5">
+        {/* Header with live clock */}
+        <section className="card flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div className="space-y-1">
+            <h1 className="mb-1 text-lg font-semibold md:text-xl">
+              Driver Portal
+            </h1>
+            <p className="text-sm text-slate-200/80">
+              Signed in as{" "}
+              <span className="font-semibold text-emerald-200">
+                {driverName.trim()}
+              </span>
+            </p>
+            <p className="text-xs text-slate-300">
+              License #: {currentDriver?.license_number ?? "N/A"}
+            </p>
+            {selectedVehicle ? (
+              <>
+                <p className="mt-1 text-sm font-semibold text-emerald-200">
+                  Vehicle ID: {selectedVehicle.label}
                 </p>
-              )}
-            </>
-          ) : (
-            <p className="mt-1 text-sm font-medium text-slate-100">
-              Vehicle: {vehicleMainLine}
-            </p>
-          )}
-        </div>
-
-        <div className="flex w-full flex-col gap-3 md:w-auto md:items-end">
-          <div className="w-full rounded-2xl bg-slate-900 px-3 py-2 text-center md:text-right ring-1 ring-emerald-500/60">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
-              Today&apos;s hours
-            </p>
-            <p className="font-mono text-lg font-semibold text-emerald-300">
-              {formatDuration(displaySeconds)}
-            </p>
+                <p className="text-xs font-medium text-slate-100">
+                  Plate: {selectedVehicle.plate || "N/A"}
+                </p>
+                {vehicleMainLine && (
+                  <p className="text-[11px] text-slate-400">
+                    Year/Make/Model: {vehicleMainLine}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="mt-1 text-sm font-medium text-slate-100">
+                Vehicle: {vehicleMainLine}
+              </p>
+            )}
           </div>
 
-          <div className="flex w-full justify-end">
+          <div className="flex w-full flex-col gap-2 md:w-auto md:items-end">
             <button
               type="button"
               onClick={handleLogout}
-              className="btn-ghost w-full px-3 py-1 text-xs md:w-auto md:text-[11px]"
+              className="self-end text-[11px] font-medium text-slate-500 underline-offset-2 hover:text-slate-200 hover:underline"
             >
               Log out
             </button>
+
+            <div className="w-full rounded-2xl bg-slate-900 px-3 py-2 text-center md:text-right ring-1 ring-emerald-500/60">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
+                Today&apos;s hours
+              </p>
+              <p className="font-mono text-lg font-semibold text-emerald-300">
+                {formatDuration(displaySeconds)}
+              </p>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
       {/* Quick nav */}
       <section className="card px-2 py-2">
