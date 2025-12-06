@@ -1397,14 +1397,6 @@ const loadTodayRoutes = async (driverId: string) => {
           </div>
 
           <div className="flex w-full flex-col gap-2 md:w-auto md:items-end">
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="self-end text-[11px] font-medium text-slate-500 underline-offset-2 hover:text-slate-200 hover:underline"
-            >
-              Log out
-            </button>
-
             <div className="w-full rounded-2xl bg-slate-900 px-3 py-2 text-center md:text-right ring-1 ring-emerald-500/60">
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
                 Today&apos;s hours
@@ -1413,6 +1405,7 @@ const loadTodayRoutes = async (driverId: string) => {
                 {formatDuration(displaySeconds)}
               </p>
             </div>
+                {/* Footer logout - bottom of driver portal */}
           </div>
         </section>
 
