@@ -5,99 +5,88 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 
-type School = {
-  id: string;
-  name: string;
-  address: string | null;
-  city: string | null;
-  state: string | null;
-  zip: string | null;
-};
+type School = { id: string; name: string };
 
-const ADMIN_FLAG_KEY = "transafe_admin_unlocked";
-
-export default function AdminNewStudentPage() {
+export default function AdminStudentNewPage() {
   const router = useRouter();
 
+  // --- admin gate (reuse your localStorage flag) ---
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [isAuthed, setIsAuthed] = useState(false);
 
-  // Schools for dropdown
-  const [schools, setSchools] = useState<School[]>([]);
-  const [loadingSchools, setLoadingSchools] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const unlocked = window.localStorage.getItem("transafe_admin_unlocked") === "true";
+    if (!unlocked) {
+      router.push("/admin");
+      return;
+    }
+    setIsAuthed(true);
+    setCheckingAuth(false);
+  }, [router]);
 
-  // Form state
+  // --- form state: student ---
   const [fullName, setFullName] = useState("");
   const [studentId, setStudentId] = useState("");
   const [pickupAddress, setPickupAddress] = useState("");
   const [pickupCity, setPickupCity] = useState("");
   const [pickupState, setPickupState] = useState("MA");
   const [pickupZip, setPickupZip] = useState("");
-  const [schoolId, setSchoolId] = useState<string>("");
-  const [primaryGuardianName, setPrimaryGuardianName] = useState("");
-  const [primaryGuardianPhone, setPrimaryGuardianPhone] = useState("");
-  const [primaryGuardianRelationship, setPrimaryGuardianRelationship] = useState("");
+  const [schoolId, setSchoolId] = useState<string | "">("");
+  const [isActive, setIsActive] = useState(true);
+  const [notes, setNotes] = useState("");
 
+  // --- form state: primary guardian (optional but encouraged) ---
+  const [pgName, setPgName] = useState("");
+  const [pgPhone, setPgPhone] = useState("");
+  const [pgEmail, setPgEmail] = useState("");
+  const [pgPref, setPgPref] = useState<"call" | "text" | "email">("call");
+  const [pgRelationship, setPgRelationship] = useState("Primary");
 
-  const [saving, setSaving] = useState(false);
+  const [schools, setSchools] = useState<School[]>([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // ---- Admin gate: same behavior as Drivers/other admin pages ----
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const unlocked = window.localStorage.getItem(ADMIN_FLAG_KEY);
-    if (unlocked === "true") {
-      setIsAuthed(true);
-      setCheckingAuth(false);
-    } else {
-      // Not unlocked – bounce back to /admin
-      setIsAuthed(false);
-      setCheckingAuth(false);
-      router.replace("/admin");
-    }
-  }, [router]);
-
-  // ---- Load schools once authed ----
+  // --- load schools for dropdown ---
   useEffect(() => {
     if (!isAuthed) return;
-
-    const loadSchools = async () => {
-      setLoadingSchools(true);
-      setError(null);
-      try {
-        const { data, error: schoolErr } = await supabase
-          .from("schools")
-          .select("id, name, address, city, state, zip")
-          .order("name", { ascending: true });
-
-        if (schoolErr) throw schoolErr;
-        setSchools((data as School[]) || []);
-      } catch (err: any) {
-        console.error(err);
-        setError(err.message ?? "Failed to load schools.");
-      } finally {
-        setLoadingSchools(false);
+    (async () => {
+      const { data, error } = await supabase
+        .from("schools")
+        .select("id, name")
+        .order("name", { ascending: true });
+      if (error) {
+        console.error(error);
+        setError("Failed to load schools.");
+        return;
       }
-    };
-
-    loadSchools();
+      setSchools((data as School[]) ?? []);
+    })();
   }, [isAuthed]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const normalizePhone = (raw: string) => raw.replace(/\D/g, "");
+
+  const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName.trim() || !pickupAddress.trim()) {
-      setError("Student name and pickup address are required.");
-      return;
+    setError(null);
+
+    // --- basic validation ---
+    if (!fullName.trim()) return setError("Student name is required.");
+    if (!pickupAddress.trim()) return setError("Pickup address is required.");
+
+    // if guardian provided ANYTHING, require name + 10-digit phone
+    const guardianProvided = !!(pgName.trim() || pgPhone.trim() || pgEmail.trim());
+    if (guardianProvided) {
+      if (!pgName.trim()) return setError("Primary guardian name is required.");
+      const digits = normalizePhone(pgPhone);
+      if (digits.length !== 10) return setError("Primary guardian phone must be 10 digits.");
     }
 
-    setSaving(true);
-    setError(null);
-    setSuccessMessage(null);
-
+    setLoading(true);
     try {
-      const payload = {
+      // 1) create student
+      // ⬇️ REPLACE your current studentPayload with this:
+        const studentPayload: Record<string, any> = {
         full_name: fullName.trim(),
         student_id: studentId.trim() || null,
         pickup_address: pickupAddress.trim(),
@@ -105,219 +94,280 @@ export default function AdminNewStudentPage() {
         pickup_state: pickupState.trim() || null,
         pickup_zip: pickupZip.trim() || null,
         school_id: schoolId || null,
-        primary_guardian_name: primaryGuardianName.trim() || null,
-        primary_guardian_phone: primaryGuardianPhone.trim() || null,
-        primary_guardian_relationship: primaryGuardianRelationship.trim() || null,
-        is_active: true,
-      };
+        is_active: isActive,
+        notes: notes.trim() || null,
 
-      const { error: insertErr } = await supabase
+        // 👇 primary guardian fields stored on students table
+        primary_guardian_name: pgName.trim() || null,
+        primary_guardian_phone: normalizePhone(pgPhone) || null,
+        primary_guardian_relationship: (pgRelationship || "").trim() || null,
+        };
+
+
+      const { data: studentRow, error: sErr } = await supabase
         .from("students")
-        .insert(payload)
-        .select()
+        .insert(studentPayload)
+        .select("id")
         .single();
 
-      if (insertErr) throw insertErr;
+      if (sErr) throw sErr;
+      const newStudentId: string = studentRow!.id;
 
-      setSuccessMessage("Student added successfully.");
-      // Small delay so the user sees the message, then go back
-      setTimeout(() => {
-        router.push("/admin#students");
-      }, 600);
+      // 2) if guardian info present, create guardian + link
+      if (guardianProvided) {
+        const digits = normalizePhone(pgPhone);
+
+        const guardianPayload = {
+          full_name: pgName.trim(),
+          phone: digits,
+          email: pgEmail.trim() || null,
+          preferred_contact_method: pgPref,
+        };
+
+        const { data: guardianRow, error: gErr } = await supabase
+          .from("guardians")
+          .insert(guardianPayload)
+          .select("id")
+          .single();
+
+        if (gErr) throw gErr;
+
+        const { error: linkErr } = await supabase.from("student_guardians").insert({
+          student_id: newStudentId,
+          guardian_id: guardianRow!.id,
+          relationship: pgRelationship || "Primary",
+        });
+
+        if (linkErr) throw linkErr;
+      }
+
+      // 3) redirect to Students tab
+      router.replace("/admin#students");
     } catch (err: any) {
       console.error(err);
-      setError(err.message ?? "Failed to add student. Please try again.");
+      setError(err?.message ?? "Failed to create student.");
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
   };
 
   if (checkingAuth) {
     return (
       <div className="card">
-        <p className="text-sm text-slate-200">Checking admin access…</p>
+        <p className="text-sm text-slate-200">Loading…</p>
       </div>
     );
   }
-
   if (!isAuthed) {
-    // We already redirected, this is just a safety message
     return (
       <div className="card">
-        <p className="text-sm text-slate-200">
-          Redirecting to admin login…
-        </p>
+        <p className="text-sm text-slate-200">Redirecting to admin login…</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      {/* Top bar: back link */}
-      <section className="card flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="text-[11px] text-slate-400">
-            <button
-              type="button"
-              onClick={() => router.push("/admin#students")}
-              className="text-emerald-300 hover:text-emerald-200"
-            >
-              ← Back to Students
-            </button>
-          </p>
-          <h1 className="mt-1 text-lg font-semibold text-slate-100">
-            Add new student
-          </h1>
-          <p className="text-xs text-slate-300">
-            Capture the core details the district sends you so you can later
-            build routes, group students, and assign them to drivers.
-          </p>
-        </div>
+      <section className="card flex items-center justify-between">
+        <Link href="/admin#students" className="text-[11px] text-emerald-300 hover:text-emerald-200">
+          ← Back to Students
+        </Link>
+        <span className="text-[11px] text-slate-400">Create new student</span>
       </section>
 
-      {/* Form */}
-      <section className="card">
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Basic details */}
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-200">
-                Student full name <span className="text-red-400">*</span>
-              </label>
-              <input
-                type="text"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-                placeholder="e.g. Jane Doe"
-              />
+      <section className="card space-y-6">
+        <div>
+          <h1 className="text-base font-semibold text-slate-50">New student</h1>
+          <p className="text-[11px] text-slate-400">
+            Enter the student’s details and (optionally) their primary guardian now.
+          </p>
+        </div>
+
+        {error && <p className="text-xs font-medium text-red-400">{error}</p>}
+
+        <form onSubmit={handleCreate} className="space-y-8">
+          {/* STUDENT INFO */}
+          <div className="space-y-3">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">
+              Student information
+            </h2>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-slate-200">
+                  Full name <span className="text-red-400">*</span>
+                </label>
+                <input
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+                  placeholder="e.g. Jane Doe"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-slate-200">Student ID (district)</label>
+                <input
+                  value={studentId}
+                  onChange={(e) => setStudentId(e.target.value)}
+                  className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+                  placeholder="e.g. 123456"
+                />
+              </div>
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-200">
-                District student ID
+              <label className="text-[11px] font-medium text-slate-200">
+                Home / pickup address <span className="text-red-400">*</span>
               </label>
               <input
-                type="text"
-                value={studentId}
-                onChange={(e) => setStudentId(e.target.value)}
-                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-                placeholder="e.g. 123456"
+                value={pickupAddress}
+                onChange={(e) => setPickupAddress(e.target.value)}
+                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+                placeholder="Street address"
               />
             </div>
-          </div>
 
-          {/* Pickup address */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-200">
-              Home / pickup address <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="text"
-              value={pickupAddress}
-              onChange={(e) => setPickupAddress(e.target.value)}
-              className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-              placeholder="Street address"
-            />
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-200">
-                City
-              </label>
+            <div className="grid gap-3 sm:grid-cols-3">
               <input
-                type="text"
                 value={pickupCity}
                 onChange={(e) => setPickupCity(e.target.value)}
-                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-                placeholder="e.g. Boston"
+                placeholder="City"
+                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
               />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-200">
-                State
-              </label>
               <input
-                type="text"
                 value={pickupState}
                 onChange={(e) => setPickupState(e.target.value)}
-                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-                placeholder="e.g. MA"
+                placeholder="State"
+                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
               />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-200">
-                ZIP
-              </label>
               <input
-                type="text"
                 value={pickupZip}
                 onChange={(e) => setPickupZip(e.target.value)}
-                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-                placeholder="e.g. 02135"
+                placeholder="ZIP"
+                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+              />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-slate-200">School</label>
+                <select
+                  value={schoolId}
+                  onChange={(e) => setSchoolId(e.target.value)}
+                  className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+                >
+                  <option value="">Select a school (optional)</option>
+                  {schools.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-slate-200">Status</label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsActive(true)}
+                    className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+                      isActive
+                        ? "bg-emerald-500 text-slate-950 shadow"
+                        : "bg-slate-900 text-slate-100 ring-1 ring-white/10 hover:bg-slate-800"
+                    }`}
+                  >
+                    Active
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsActive(false)}
+                    className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+                      !isActive
+                        ? "bg-amber-500 text-slate-950 shadow"
+                        : "bg-slate-900 text-slate-100 ring-1 ring-white/10 hover:bg-slate-800"
+                    }`}
+                  >
+                    Inactive
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-medium text-slate-200">Notes</label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+                rows={3}
+                placeholder="Behavior, wheelchair, language, etc."
               />
             </div>
           </div>
 
-          {/* School selector */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-200">
-              Assigned school
-            </label>
-            <select
-              value={schoolId}
-              onChange={(e) => setSchoolId(e.target.value)}
-              className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-            >
-              <option value="">
-                {loadingSchools
-                  ? "Loading schools…"
-                  : "Select a school (optional)"}
-              </option>
-              {schools.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+          {/* PRIMARY GUARDIAN */}
+          <div className="space-y-3">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">
+              Primary guardian (optional, but recommended)
+            </h2>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-slate-200">Full name</label>
+                <input
+                  value={pgName}
+                  onChange={(e) => setPgName(e.target.value)}
+                  placeholder="e.g. Yashika Young"
+                  className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-slate-200">Phone</label>
+                <input
+                  value={pgPhone}
+                  onChange={(e) => setPgPhone(e.target.value)}
+                  placeholder="857-555-1212"
+                  className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <input
+                value={pgEmail}
+                onChange={(e) => setPgEmail(e.target.value)}
+                placeholder="Email (optional)"
+                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+              />
+              <select
+                value={pgPref}
+                onChange={(e) => setPgPref(e.target.value as "call" | "text" | "email")}
+                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+              >
+                <option value="call">Preferred: Call</option>
+                <option value="text">Preferred: Text</option>
+                <option value="email">Preferred: Email</option>
+              </select>
+              <input
+                value={pgRelationship}
+                onChange={(e) => setPgRelationship(e.target.value)}
+                placeholder='Relationship (e.g. "Mother")'
+                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+              />
+            </div>
+
             <p className="text-[11px] text-slate-400">
-              You can manage schools in the database directly for now. Later
-              we can add a dedicated Schools tab.
+              If you leave guardian fields blank now, you can add them later from the student’s page.
             </p>
           </div>
 
-          {/* Status / notes */}
-          <div className="rounded-xl bg-slate-950/60 p-3 text-[11px] text-slate-400">
-            New students are created as{" "}
-            <span className="font-semibold text-emerald-300">Active</span> by
-            default. You’ll be able to deactivate them later from the Students
-            tab once we wire up the full list and detail view.
-          </div>
-
-          {/* Messages */}
-          {error && (
-            <p className="text-xs font-medium text-red-400">{error}</p>
-          )}
-          {successMessage && (
-            <p className="text-xs font-medium text-emerald-400">
-              {successMessage}
-            </p>
-          )}
-
-          {/* Actions */}
-          <div className="flex flex-wrap gap-2 pt-2">
-            <button
-              type="submit"
-              disabled={saving}
-              className="btn-primary px-4 py-2 text-xs font-semibold disabled:opacity-60"
-            >
-              {saving ? "Saving…" : "Save student"}
+          <div className="flex gap-2 pt-2">
+            <button type="submit" disabled={loading} className="btn-primary px-4 py-2 text-xs font-semibold">
+              {loading ? "Saving…" : "Save student"}
             </button>
-            <Link
-              href="/admin#students"
-              className="btn-ghost px-4 py-2 text-xs font-semibold"
-            >
+            <Link href="/admin#students" className="btn-ghost px-4 py-2 text-xs">
               Cancel
             </Link>
           </div>

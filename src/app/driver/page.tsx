@@ -1,16 +1,18 @@
-  "use client";
+"use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 
+// ==== TYPES ====
+
 type Driver = {
   id: string;
   full_name: string;
   license_number: string | null;
   is_active: boolean;
-  pin: string | null;       // NEW
+  pin: string | null;
   created_at: string;
 };
 
@@ -38,7 +40,6 @@ type ChecklistItem = {
 
 type AnswersState = Record<string, AnswerValue | null>;
 
-
 type TimeEntry = {
   id: string;
   work_date: string; // "YYYY-MM-DD"
@@ -47,9 +48,44 @@ type TimeEntry = {
   duration_seconds: number | null;
 };
 
+// ==== TODAY'S ROUTES TYPES ====
+
+type DriverRouteSummary = {
+  id: string;
+  name: string;
+  direction: "AM" | "MIDDAY" | "PM";
+  is_active: boolean;
+  effective_start_date: string | null;
+  effective_end_date: string | null;
+};
+
+type RouteStopForDriver = {
+  id: string;
+  route_id: string;
+  sequence: number;
+  address: string | null;
+  planned_time: string | null;
+
+  // NEW fields we’re actually using in the UI
+  stop_type:
+    | "pickup_home"
+    | "dropoff_home"
+    | "pickup_school"
+    | "dropoff_school"
+    | "other";
+
+  student_name: string | null;
+  primary_guardian_name: string | null;
+  primary_guardian_phone: string | null;
+
+  // school fields (you said DB columns are name + phone)
+  name: string | null;  // school name
+  phone: string | null; // school phone
+};
+
+
 /**
- * Pre-trip checklist – based on the official RMV 7D form
- * (paraphrased to avoid quoting it verbatim).
+ * Pre-trip checklist – based on the official RMV 7D form (paraphrased).
  */
 const PRE_CHECKLIST: ChecklistItem[] = [
   // Lights & exterior
@@ -264,11 +300,9 @@ function AnswerButton({
       className={`${baseClasses} ${colorClasses}`}
     >
       <div className="flex flex-col items-center justify-center gap-0.5">
-        {/* Short label (P / F / N) */}
         <span className="text-[11px] uppercase tracking-[0.18em]">
           {label}
         </span>
-        {/* Full word for clarity */}
         <span className="text-xs md:text-sm">
           {value === "pass" ? "Pass" : value === "fail" ? "Fail" : "N/A"}
         </span>
@@ -293,31 +327,34 @@ function formatDuration(totalSeconds: number): string {
 
 function getTodayDateString() {
   const now = new Date();
-  // Use local date; toISOString gives UTC, so we build manually
   const year = now.getFullYear();
   const month = `${now.getMonth() + 1}`.padStart(2, "0");
   const day = `${now.getDate()}`.padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
-function getWeekStartDateString(): string {
-  const now = new Date();
-  const day = now.getDay(); // 0 (Sun) - 6 (Sat)
-  // We want Monday as week start; treat Sunday as 6 days after previous Monday
-  const diff = (day + 6) % 7; // 0 for Mon, 1 for Tue, ..., 6 for Sun
-  const monday = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate() - diff,
-  );
-  const year = monday.getFullYear();
-  const month = `${monday.getMonth() + 1}`.padStart(2, "0");
-  const date = `${monday.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${date}`;
+// Decide whether this stop is "Pick up" or "Drop off"
+function getStopAction(
+  direction: "AM" | "MIDDAY" | "PM",
+  isSchoolStop: boolean,
+): "Pick up" | "Drop off" {
+  if (direction === "AM") {
+    // Morning: homes = pick up, school = drop off
+    return isSchoolStop ? "Drop off" : "Pick up";
+  } 
+  if (direction === "MIDDAY"){
+    // Midday: school = pick up, homes = drop off
+    return isSchoolStop ? "Pick up" : "Drop off";
+  }
+  else {
+    // Afternoon: school = pick up, homes = drop off
+    return isSchoolStop ? "Pick up" : "Drop off";
+  }
 }
 
 export default function DriverPage() {
   const router = useRouter();
+
   const [driverName, setDriverName] = useState("");
   const [driverPin, setDriverPin] = useState("");
   const [currentDriver, setCurrentDriver] = useState<Driver | null>(null);
@@ -340,12 +377,24 @@ export default function DriverPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
 
+  // ==== TIME TRACKING STATE ====
+  const [clockBaseSeconds, setClockBaseSeconds] = useState(0);
+  const [activeSince, setActiveSince] = useState<Date | null>(null);
+  const [displaySeconds, setDisplaySeconds] = useState(0);
+
+  // ==== TODAY'S ROUTES STATE ====
+  const [todayRoutesLoading, setTodayRoutesLoading] = useState(false);
+  const [todayRoutesError, setTodayRoutesError] = useState<string | null>(null);
+  const [todayRoutes, setTodayRoutes] = useState<DriverRouteSummary[]>([]);
+  const [todayRouteStops, setTodayRouteStops] = useState<
+    Record<string, RouteStopForDriver[]>
+  >({});
+
   // Restore previous driver session from localStorage
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const restoreSession = async () => {
-      // 1) Preferred: new unified session key
       const stored = window.localStorage.getItem("transafeDriverSession");
       if (stored) {
         try {
@@ -360,15 +409,14 @@ export default function DriverPage() {
             return;
           }
 
-         setCurrentDriver({
+          setCurrentDriver({
             id: parsed.driverId,
             full_name: parsed.driverName,
             license_number: parsed.licenseNumber,
             is_active: true,
-            pin: null, // we don't know the PIN from localStorage; session is already established
+            pin: null,
             created_at: "",
           });
-
 
           setDriverName(parsed.driverName);
           if (parsed.vehicleId) {
@@ -384,7 +432,6 @@ export default function DriverPage() {
         }
       }
 
-      // 2) Fallback: older keys
       const fallbackId = window.localStorage.getItem("transafeDriverId");
       const fallbackName = window.localStorage.getItem("transafeDriverName");
 
@@ -446,11 +493,6 @@ export default function DriverPage() {
     void restoreSession();
   }, []);
 
-    // ==== TIME TRACKING STATE ====
-  const [clockBaseSeconds, setClockBaseSeconds] = useState(0); // completed time today
-  const [activeSince, setActiveSince] = useState<Date | null>(null); // when current session started
-  const [displaySeconds, setDisplaySeconds] = useState(0); // what we show
-
   // Prefill login form from the last used driver (even after logout)
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -509,7 +551,6 @@ export default function DriverPage() {
     [vehicles, selectedVehicleId],
   );
 
-  // Nicely formatted vehicle line
   const vehicleMainLine = useMemo(() => {
     if (!selectedVehicle) return "Unknown vehicle";
     const parts = [
@@ -539,7 +580,7 @@ export default function DriverPage() {
     return groups;
   }, [currentChecklist]);
 
-    const loadTimeForToday = async (driverId: string) => {
+  const loadTimeForToday = async (driverId: string) => {
     const todayStr = getTodayDateString();
 
     try {
@@ -569,7 +610,6 @@ export default function DriverPage() {
             );
           baseSeconds += dur;
         } else {
-          // open session
           activeStart = new Date(entry.start_time);
         }
       });
@@ -582,10 +622,301 @@ export default function DriverPage() {
     }
   };
 
-  // When a driver session becomes ready, load today's and this week's time
-    useEffect(() => {
+  // ==== LOAD TODAY'S ROUTES FOR THIS DRIVER ====
+const loadTodayRoutes = async (driverId: string) => {
+  setTodayRoutesLoading(true);
+  setTodayRoutesError(null);
+
+  try {
+    // Optional: still keep the date string if you use it for logs/display
+    const todayStr = getTodayDateString();
+
+    // Use LOCAL time for today's date and day-of-week
+    // 0 = Sun, 1 = Mon, ..., 6 = Sat
+    const today = new Date();
+    const todayDow = today.getDay();
+
+    // 1) Load ONLY assignments for THIS driver AND THIS day_of_week
+    const { data: assignmentData, error: assignmentErr } = await supabase
+      .from("driver_route_assignments")
+      .select("id, route_id, day_of_week, is_active")
+      .eq("driver_id", driverId)
+      .eq("is_active", true)
+      .eq("day_of_week", todayDow); // <-- day_of_week stored as 0–6 in Supabase
+
+    if (assignmentErr) throw assignmentErr;
+
+    const assignments = (assignmentData || []) as any[];
+
+    // 2) If NO assignments for today's day_of_week, then "Today's routes"
+    //    should be empty (do NOT fall back to other days).
+    if (!assignments || assignments.length === 0) {
+      setTodayRoutes([]);
+      setTodayRouteStops({});
+      return;
+    }
+
+    // 3) Collect the set of route IDs from today's assignments
+    const routeIds = Array.from(
+      new Set(
+        assignments
+          .map((row: any) => row.route_id)
+          .filter((id: string | null) => !!id),
+      ),
+    ) as string[];
+
+    if (routeIds.length === 0) {
+      setTodayRoutes([]);
+      setTodayRouteStops({});
+      return;
+    }
+
+      // 3) Load routes + raw stops (now with stop_type and school_id)
+      const [
+        { data: routesData, error: routesErr },
+        { data: stopsData, error: stopsErr },
+      ] = await Promise.all([
+        supabase
+          .from("routes")
+          .select(
+            "id, name, direction, is_active, effective_start_date, effective_end_date",
+          )
+          .in("id", routeIds),
+        supabase
+          .from("route_stops")
+          .select(
+            "id, route_id, sequence, address, planned_time, stop_type, student_id, school_id",
+          )
+          .in("route_id", routeIds)
+          .order("sequence", { ascending: true }),
+      ]);
+
+      if (routesErr) throw routesErr;
+      if (stopsErr) throw stopsErr;
+
+      // 4) Build a routeId -> direction map (we may use this in future if needed)
+      const directionByRouteId = new Map<string, "AM" | "MIDDAY" | "PM">();
+      (routesData || []).forEach((r: any) => {
+        if (r.id && (r.direction === "AM" || r.direction === "MIDDAY" || r.direction === "PM")) {
+          directionByRouteId.set(r.id, r.direction);
+        }
+      });
+
+      // 5) Collect student_ids and school_ids from these stops
+      const studentIdsSet = new Set<string>();
+      const schoolIdsSet = new Set<string>();
+
+      (stopsData || []).forEach((row: any) => {
+        if (row.student_id) {
+          studentIdsSet.add(row.student_id as string);
+        }
+        if (row.school_id) {
+          schoolIdsSet.add(row.school_id as string);
+        }
+      });
+
+      const studentIds = Array.from(studentIdsSet);
+
+      // Build lookup maps
+      const studentsById = new Map<
+        string,
+        {
+          id: string;
+          full_name: string | null;
+          primary_guardian_name: string | null;
+          primary_guardian_phone: string | null;
+          pickup_address: string | null;
+          pickup_city: string | null;
+          pickup_state: string | null;
+          pickup_zip: string | null;
+          school_id: string | null;
+        }
+      >();
+
+      const schoolsById = new Map<
+        string,
+        {
+          name: string | null;
+          phone: string | null;
+          address: string | null;
+        }
+      >();
+
+      // 5a) Load students (if any), and add their school_ids into the schoolIdsSet as well
+      if (studentIds.length > 0) {
+        const { data: studentsData, error: studentsErr } = await supabase
+          .from("students")
+          .select(
+            "id, full_name, primary_guardian_name, primary_guardian_phone, pickup_address, pickup_city, pickup_state, pickup_zip, school_id",
+          )
+          .in("id", studentIds);
+
+        if (studentsErr) throw studentsErr;
+
+        (studentsData || []).forEach((st: any) => {
+          studentsById.set(st.id, {
+            id: st.id,
+            full_name: st.full_name ?? null,
+            primary_guardian_name: st.primary_guardian_name ?? null,
+            primary_guardian_phone: st.primary_guardian_phone ?? null,
+            pickup_address: st.pickup_address ?? null,
+            pickup_city: st.pickup_city ?? null,
+            pickup_state: st.pickup_state ?? null,
+            pickup_zip: st.pickup_zip ?? null,
+            school_id: st.school_id ?? null,
+          });
+
+          if (st.school_id) {
+            schoolIdsSet.add(st.school_id as string);
+          }
+        });
+      }
+
+      // 5b) Load schools (from both stops and students)
+      const schoolIdArray = Array.from(schoolIdsSet);
+      if (schoolIdArray.length > 0) {
+        const { data: schoolsData, error: schoolsErr } = await supabase
+          .from("schools")
+          .select("id, name, phone, address")
+          .in("id", schoolIdArray);
+
+        if (schoolsErr) throw schoolsErr;
+
+        (schoolsData || []).forEach((sc: any) => {
+          schoolsById.set(sc.id, {
+            name: sc.name ?? null,
+            phone: sc.phone ?? null,
+            address: sc.address ?? null,
+          });
+        });
+      }
+
+      // 6) Filter routes that are active today
+      const filteredRoutes = (routesData || []).filter((r: any) => {
+        const startOk =
+          !r.effective_start_date ||
+          new Date(r.effective_start_date) <= today;
+        const endOk =
+          !r.effective_end_date || new Date(r.effective_end_date) >= today;
+        return startOk && endOk && r.is_active;
+      }) as any[];
+
+      const activeRouteIds = new Set(filteredRoutes.map((r: any) => r.id));
+
+      // 7) Build stops map only for active routes, with full address + labels + contacts
+      const stopsMap: Record<string, RouteStopForDriver[]> = {};
+
+      (stopsData || []).forEach((row: any) => {
+        if (!activeRouteIds.has(row.route_id)) return;
+
+        const stopTypeRaw = row.stop_type as RouteStopForDriver["stop_type"] | null;
+
+        const isHomeStop =
+          stopTypeRaw === "pickup_home" || stopTypeRaw === "dropoff_home";
+        const isSchoolStop =
+          stopTypeRaw === "pickup_school" || stopTypeRaw === "dropoff_school";
+
+        const student =
+          row.student_id && studentsById.size > 0
+            ? studentsById.get(row.student_id)
+            : null;
+
+        // Prefer an explicit school_id on the stop; otherwise fall back to the student's school
+        let school =
+          row.school_id && schoolsById.size > 0
+            ? schoolsById.get(row.school_id)
+            : null;
+
+        if (!school && student?.school_id && schoolsById.size > 0) {
+          const fromStudent = schoolsById.get(student.school_id);
+          if (fromStudent) {
+            school = fromStudent;
+          }
+        }
+
+        // Build address:
+        // - For home stops: use student's pickup_* fields
+        // - For school stops: use school's address
+        // - Otherwise: use route_stops.address
+        let effectiveAddress: string | null = row.address ?? null;
+
+        if (isHomeStop && student) {
+          const parts: string[] = [];
+
+          if (student.pickup_address && student.pickup_address.trim()) {
+            parts.push(student.pickup_address.trim());
+          }
+          if (student.pickup_city && student.pickup_city.trim()) {
+            parts.push(student.pickup_city.trim());
+          }
+
+          const stateZipParts: string[] = [];
+          if (student.pickup_state && student.pickup_state.trim()) {
+            stateZipParts.push(student.pickup_state.trim());
+          }
+          if (student.pickup_zip && student.pickup_zip.trim()) {
+            stateZipParts.push(student.pickup_zip.trim());
+          }
+          if (stateZipParts.length > 0) {
+            parts.push(stateZipParts.join(" "));
+          }
+
+          const fullAddress = parts.join(", ");
+          if (fullAddress) {
+            effectiveAddress = fullAddress;
+          }
+        } else if (isSchoolStop && school?.address) {
+          effectiveAddress = school.address;
+        }
+
+        const stop: RouteStopForDriver = {
+          id: row.id,
+          route_id: row.route_id,
+          sequence: row.sequence,
+          address: effectiveAddress,
+          planned_time: row.planned_time,
+          stop_type: stopTypeRaw || "other",
+          student_name: student?.full_name ?? null,
+          primary_guardian_name: student?.primary_guardian_name ?? null,
+          primary_guardian_phone: student?.primary_guardian_phone ?? null,
+          name: school?.name ?? null,
+          phone: school?.phone ?? null,
+        };
+
+        if (!stopsMap[row.route_id]) {
+          stopsMap[row.route_id] = [];
+        }
+
+        stopsMap[row.route_id].push(stop);
+      });
+
+      setTodayRoutes(
+        filteredRoutes.map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          direction: r.direction,
+          is_active: r.is_active,
+          effective_start_date: r.effective_start_date,
+          effective_end_date: r.effective_end_date,
+        })),
+      );
+      setTodayRouteStops(stopsMap);
+    } catch (err: any) {
+      console.error("Failed to load today's routes for driver", err);
+      setTodayRoutesError(
+        err?.message ??
+          "Failed to load today's routes. Please contact admin.",
+      );
+    } finally {
+      setTodayRoutesLoading(false);
+    }
+  };
+
+  // When a driver session becomes ready, load today's time and today's routes
+  useEffect(() => {
     if (!isSessionReady || !currentDriver?.id) return;
     loadTimeForToday(currentDriver.id);
+    loadTodayRoutes(currentDriver.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSessionReady, currentDriver?.id]);
 
@@ -610,139 +941,134 @@ export default function DriverPage() {
   }, [activeSince, clockBaseSeconds]);
 
   // ==== SESSION HANDLERS ====
+  const handleStartSession = async () => {
+    const normalizeName = (name: string) =>
+      name.trim().replace(/\s+/g, " ");
 
-const handleStartSession = async () => {
-  const normalizeName = (name: string) =>
-    name.trim().replace(/\s+/g, " ");
+    const inputName = normalizeName(driverName);
 
-  const inputName = normalizeName(driverName);
+    if (!inputName || !selectedVehicleId) {
+      setError("Please enter your name, PIN, and select a vehicle.");
+      return;
+    }
 
-  if (!inputName || !selectedVehicleId) {
-    setError("Please enter your name, PIN, and select a vehicle.");
-    return;
-  }
+    if (!driverPin.trim()) {
+      setError("Please enter your PIN.");
+      return;
+    }
 
-  if (!driverPin.trim()) {
-    setError("Please enter your PIN.");
-    return;
-  }
+    setError(null);
+    setSubmitMessage(null);
+    setLoadingDriverLookup(true);
 
-  setError(null);
-  setSubmitMessage(null);
-  setLoadingDriverLookup(true);
+    try {
+      const { data, error: drvErr } = await supabase
+        .from("drivers")
+        .select("*")
+        .ilike("full_name", inputName)
+        .eq("is_active", true)
+        .order("created_at", { ascending: true });
 
-  try {
-    const { data, error: drvErr } = await supabase
-      .from("drivers")
-      .select("*")
-      .ilike("full_name", inputName)
-      .eq("is_active", true)
-      .order("created_at", { ascending: true });
+      if (drvErr) throw drvErr;
 
-    if (drvErr) throw drvErr;
+      if (!data || data.length === 0) {
+        setError(
+          "No active driver found with that name. Please contact your admin to register you.",
+        );
+        setLoadingDriverLookup(false);
+        return;
+      }
 
-    if (!data || data.length === 0) {
+      const driver = data[0] as Driver;
+
+      if (!driver.pin || driver.pin.trim() === "") {
+        setError(
+          "This driver does not have a PIN set yet. Please contact your admin.",
+        );
+        setLoadingDriverLookup(false);
+        return;
+      }
+
+      if (driver.pin.trim() !== driverPin.trim()) {
+        setError("Name, vehicle, or PIN is incorrect.");
+        setLoadingDriverLookup(false);
+        return;
+      }
+
+      setCurrentDriver(driver);
+
+      if (typeof window !== "undefined") {
+        const sessionPayload = {
+          driverId: driver.id,
+          driverName: driver.full_name,
+          licenseNumber: driver.license_number,
+          vehicleId: selectedVehicleId,
+        };
+
+        window.localStorage.setItem(
+          "transafeDriverSession",
+          JSON.stringify(sessionPayload),
+        );
+
+        window.localStorage.setItem("transafeDriverId", driver.id);
+        window.localStorage.setItem("transafeDriverName", driver.full_name);
+
+        const recentPayload = {
+          driverName: driver.full_name,
+          vehicleId: selectedVehicleId,
+        };
+        window.localStorage.setItem(
+          "transafeRecentDriver",
+          JSON.stringify(recentPayload),
+        );
+      }
+
+      setIsSessionReady(true);
+      setSelectedInspectionType(null);
+      setShift("");
+      setOdometer("");
+      setAnswers({});
+      setNotes("");
+      setSignatureName("");
+    } catch (err: any) {
+      console.error(err);
       setError(
-        "No active driver found with that name. Please contact your admin to register you.",
+        err?.message ??
+          "Failed to look up driver. Please check your name spelling or contact admin.",
       );
+    } finally {
       setLoadingDriverLookup(false);
-      return;
     }
+  };
 
-    const driver = data[0] as Driver;
-
-    // NEW: enforce that this driver has a PIN set
-    if (!driver.pin || driver.pin.trim() === "") {
-      setError(
-        "This driver does not have a PIN set yet. Please contact your admin.",
-      );
-      setLoadingDriverLookup(false);
-      return;
-    }
-
-    // NEW: compare entered PIN with stored PIN
-    if (driver.pin.trim() !== driverPin.trim()) {
-      // generic error so attackers can't tell which field is wrong
-      setError("Name, vehicle, or PIN is incorrect.");
-      setLoadingDriverLookup(false);
-      return;
-    }
-
-    setCurrentDriver(driver);
-
-    // Persist session
-    if (typeof window !== "undefined") {
-      const sessionPayload = {
-        driverId: driver.id,
-        driverName: driver.full_name,
-        licenseNumber: driver.license_number,
-        vehicleId: selectedVehicleId,
-      };
-
-      window.localStorage.setItem(
-        "transafeDriverSession",
-        JSON.stringify(sessionPayload),
-      );
-
-      window.localStorage.setItem("transafeDriverId", driver.id);
-      window.localStorage.setItem("transafeDriverName", driver.full_name);
-
-      const recentPayload = {
-        driverName: driver.full_name,
-        vehicleId: selectedVehicleId,
-      };
-      window.localStorage.setItem(
-        "transafeRecentDriver",
-        JSON.stringify(recentPayload),
-      );
-    }
-
-    setIsSessionReady(true);
+  const handleLogout = () => {
+    setIsSessionReady(false);
+    setCurrentDriver(null);
+    setDriverName("");
+    setDriverPin("");
+    setSelectedVehicleId("");
     setSelectedInspectionType(null);
     setShift("");
     setOdometer("");
     setAnswers({});
     setNotes("");
     setSignatureName("");
-  } catch (err: any) {
-    console.error(err);
-    setError(
-      err?.message ??
-        "Failed to look up driver. Please check your name spelling or contact admin.",
-    );
-  } finally {
-    setLoadingDriverLookup(false);
-  }
-};
+    setSubmitMessage(null);
+    setError(null);
 
-const handleLogout = () => {
-  setIsSessionReady(false);
-  setCurrentDriver(null);
-  setDriverName("");
-  setDriverPin("");       // NEW: clear PIN
-  setSelectedVehicleId("");
-  setSelectedInspectionType(null);
-  setShift("");
-  setOdometer("");
-  setAnswers({});
-  setNotes("");
-  setSignatureName("");
-  setSubmitMessage(null);
-  setError(null);
+    setClockBaseSeconds(0);
+    setActiveSince(null);
+    setDisplaySeconds(0);
 
-  setClockBaseSeconds(0);
-  setActiveSince(null);
-  setDisplaySeconds(0);
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("transafeDriverId");
+      window.localStorage.removeItem("transafeDriverName");
+      window.localStorage.removeItem("transafeDriverSession");
+      // keep transafeRecentDriver on purpose
+    }
 
-  if (typeof window !== "undefined") {
-    window.localStorage.removeItem("transafeDriverId");
-    window.localStorage.removeItem("transafeDriverName");
-    window.localStorage.removeItem("transafeDriverSession");
-    // NOTE: we keep transafeRecentDriver on purpose to prefill next time
-  }
-
-  router.push("/");
-};
+    router.push("/");
+  };
 
   const updateAnswer = (itemId: string, value: AnswerValue) => {
     setAnswers((prev) => ({
@@ -763,8 +1089,7 @@ const handleLogout = () => {
     allAnswered &&
     !submitting;
 
-  // ==== TIME TRACKING HELPERS (start/stop work session) ====
-
+  // ==== TIME TRACKING HELPERS ====
   const startWorkSessionIfNeeded = async () => {
     if (!currentDriver) return;
     const todayStr = getTodayDateString();
@@ -919,126 +1244,124 @@ const handleLogout = () => {
     }
   };
 
-// 1) Pre-session: enter name + PIN + select vehicle
-if (!isSessionReady) {
-  return (
-    <div className="space-y-4 max-w-md mx-auto">
-      <section className="card space-y-2 text-center sm:text-left">
-        <h1 className="text-xl font-semibold sm:text-2xl">Driver Portal</h1>
-        <p className="text-sm text-slate-200/80">
-          Enter your name, PIN, and select your assigned vehicle to begin your
-          daily inspection and time clock.
-        </p>
-      </section>
-
-      {error && (
-        <section className="card border border-red-500/50 bg-red-950/40">
-          <p className="text-xs font-medium text-red-200">{error}</p>
+  // 1) Pre-session screen
+  if (!isSessionReady) {
+    return (
+      <div className="space-y-4 max-w-md mx-auto">
+        <section className="card space-y-2 text-center sm:text-left">
+          <h1 className="text-xl font-semibold sm:text-2xl">Driver Portal</h1>
+          <p className="text-sm text-slate-200/80">
+            Enter your name, PIN, and select your assigned vehicle to begin your
+            daily inspection and time clock.
+          </p>
         </section>
-      )}
 
-      <section className="card space-y-4">
-        {/* Name */}
-        <div className="space-y-2">
-          <label className="block text-sm font-medium text-slate-100">
-            Your full name
-          </label>
-          <input
-            type="text"
-            value={driverName}
-            onChange={(e) => setDriverName(e.target.value)}
-            className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-            placeholder="e.g. John Doe"
-          />
-          <p className="text-[11px] text-slate-400">
-            Must match how your name is entered by the admin (e.g. &quot;Julio
-            Duarte&quot;).
-          </p>
-        </div>
+        {error && (
+          <section className="card border border-red-500/50 bg-red-950/40">
+            <p className="text-xs font-medium text-red-200">{error}</p>
+          </section>
+        )}
 
-        {/* PIN */}
-        <div className="space-y-2">
-          <label className="block text-sm font-medium text-slate-100">
-            Driver PIN
-          </label>
-          <input
-            id="driverPin"
-            type="password"
-            inputMode="numeric"
-            autoComplete="off"
-            value={driverPin}
-            onChange={(e) => setDriverPin(e.target.value)}
-            className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-            placeholder="4–6 digit PIN"
-          />
-          <p className="text-[11px] text-slate-400">
-            This is your personal secret code. Do not share it with anyone.
-          </p>
-        </div>
+        <section className="card space-y-4">
+          {/* Name */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-100">
+              Your full name
+            </label>
+            <input
+              type="text"
+              value={driverName}
+              onChange={(e) => setDriverName(e.target.value)}
+              className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+              placeholder="e.g. John Doe"
+            />
+            <p className="text-[11px] text-slate-400">
+              Must match how your name is entered by the admin (e.g. &quot;Julio
+              Duarte&quot;).
+            </p>
+          </div>
 
-        {/* Vehicle – disabled until PIN is entered */}
-        <div className="space-y-2">
-          <label className="block text-sm font-medium text-slate-100">
-            Assigned vehicle
-          </label>
-          <select
-            value={selectedVehicleId}
-            onChange={(e) => setSelectedVehicleId(e.target.value)}
-            disabled={!driverPin.trim() || loadingVehicles}
-            className={`w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2 ${
-              !driverPin.trim() || loadingVehicles
-                ? "cursor-not-allowed opacity-60"
-                : ""
-            }`}
-          >
-            <option value="">
-              {!driverPin.trim()
-                ? "Enter your PIN to unlock vehicles"
-                : loadingVehicles
-                  ? "Loading vehicles..."
-                  : "Select a vehicle"}
-            </option>
-            {vehicles.map((vehicle) => (
-              <option key={vehicle.id} value={vehicle.id}>
-                {vehicle.label}
+          {/* PIN */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-100">
+              Driver PIN
+            </label>
+            <input
+              id="driverPin"
+              type="password"
+              inputMode="numeric"
+              autoComplete="off"
+              value={driverPin}
+              onChange={(e) => setDriverPin(e.target.value)}
+              className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
+              placeholder="4–6 digit PIN"
+            />
+            <p className="text-[11px] text-slate-400">
+              This is your personal secret code. Do not share it with anyone.
+            </p>
+          </div>
+
+          {/* Vehicle */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-100">
+              Assigned vehicle
+            </label>
+            <select
+              value={selectedVehicleId}
+              onChange={(e) => setSelectedVehicleId(e.target.value)}
+              disabled={!driverPin.trim() || loadingVehicles}
+              className={`w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2 ${
+                !driverPin.trim() || loadingVehicles
+                  ? "cursor-not-allowed opacity-60"
+                  : ""
+              }`}
+            >
+              <option value="">
+                {!driverPin.trim()
+                  ? "Enter your PIN to unlock vehicles"
+                  : loadingVehicles
+                    ? "Loading vehicles..."
+                    : "Select a vehicle"}
               </option>
-            ))}
-          </select>
-          <p className="text-[11px] text-slate-400">
-            You must enter your PIN before choosing a vehicle. If your vehicle
-            is missing, ask your admin to add it in the Admin Portal.
-          </p>
-        </div>
+              {vehicles.map((vehicle) => (
+                <option key={vehicle.id} value={vehicle.id}>
+                  {vehicle.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-slate-400">
+              You must enter your PIN before choosing a vehicle. If your vehicle
+              is missing, ask your admin to add it in the Admin Portal.
+            </p>
+          </div>
 
-        {/* Login button */}
-        <button
-          type="button"
-          onClick={handleStartSession}
-          className="btn-primary w-full text-sm"
-          disabled={
-            !driverName.trim() ||
-            !driverPin.trim() || // require PIN
-            !selectedVehicleId ||
-            loadingVehicles ||
-            loadingDriverLookup
-          }
-        >
-          {loadingDriverLookup
-            ? "Checking driver…"
-            : "Continue to driver dashboard"}
-        </button>
-      </section>
-    </div>
-  );
-}
+          {/* Login button */}
+          <button
+            type="button"
+            onClick={handleStartSession}
+            className="btn-primary w-full text-sm"
+            disabled={
+              !driverName.trim() ||
+              !driverPin.trim() ||
+              !selectedVehicleId ||
+              loadingVehicles ||
+              loadingDriverLookup
+            }
+          >
+            {loadingDriverLookup
+              ? "Checking driver…"
+              : "Continue to driver dashboard"}
+          </button>
+        </section>
+      </div>
+    );
+  }
 
-  // 2) Session ready – show inspection selection, form, and history
+  // 2) Session ready – main driver view
   return (
     <div className="space-y-5">
-
-       {/* Header with live clock – mobile-first layout */}
+      {/* Header with live clock */}
       <section className="card flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        {/* Driver + vehicle info */}
         <div className="space-y-1">
           <h1 className="mb-1 text-lg font-semibold md:text-xl">
             Driver Portal
@@ -1073,13 +1396,11 @@ if (!isSessionReady) {
           )}
         </div>
 
-        {/* Today clock + logout */}
         <div className="flex w-full flex-col gap-3 md:w-auto md:items-end">
           <div className="w-full rounded-2xl bg-slate-900 px-3 py-2 text-center md:text-right ring-1 ring-emerald-500/60">
-             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
               Today&apos;s hours
             </p>
-
             <p className="font-mono text-lg font-semibold text-emerald-300">
               {formatDuration(displaySeconds)}
             </p>
@@ -1097,7 +1418,7 @@ if (!isSessionReady) {
         </div>
       </section>
 
-          {/* One-tap navigation row – mobile friendly */}
+      {/* Quick nav */}
       <section className="card px-2 py-2">
         <nav className="grid grid-cols-3 gap-2 text-xs sm:text-sm">
           <Link
@@ -1106,14 +1427,12 @@ if (!isSessionReady) {
           >
             Time Log
           </Link>
-
           <Link
             href="/driver/inspections"
             className="flex items-center justify-center rounded-xl bg-slate-900 px-3 py-2 font-semibold text-slate-100 ring-1 ring-white/10 hover:bg-slate-800 active:scale-[0.97]"
           >
             Inspections History
           </Link>
-
           <Link
             href="/driver/help"
             className="flex items-center justify-center rounded-xl bg-slate-900 px-3 py-2 font-semibold text-slate-100 ring-1 ring-white/10 hover:bg-slate-800 active:scale-[0.97]"
@@ -1123,91 +1442,286 @@ if (!isSessionReady) {
         </nav>
       </section>
 
+      {/* === TODAY'S ROUTES SECTION === */}
+      <section className="card space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">
+              Today&apos;s routes
+            </h2>
+            <p className="text-[11px] text-slate-400">
+              Based on your weekly route assignments for today.
+            </p>
+          </div>
+          {todayRoutesLoading && (
+            <p className="text-[11px] text-slate-400">Loading…</p>
+          )}
+        </div>
+
+        {todayRoutesError && (
+          <p className="text-xs font-medium text-rose-400">
+            {todayRoutesError}
+          </p>
+        )}
+
+        {!todayRoutesLoading &&
+          !todayRoutesError &&
+          todayRoutes.length === 0 && (
+            <p className="text-xs text-slate-300">
+              You have no active routes assigned for today.
+            </p>
+          )}
+
+        {todayRoutes.length > 0 && (
+          <div className="space-y-3">
+            {todayRoutes.map((route) => {
+              const stops = todayRouteStops[route.id] || [];
+
+              return (
+                <div
+                  key={route.id}
+                  className="rounded-xl border border-white/10 bg-slate-950/70 p-3"
+                >
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        {route.direction === "AM"
+                          ? "Morning route"
+                          : route.direction === "MIDDAY"
+                          ? "Midday route"
+                          : "Afternoon route"}
+                      </p>
+                      <h3 className="text-sm font-semibold text-slate-50">
+                        {route.name}
+                      </h3>
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      {route.effective_start_date && (
+                        <span>
+                          Starts:{" "}
+                          <span className="font-medium text-slate-200">
+                            {route.effective_start_date}
+                          </span>
+                        </span>
+                      )}
+                      {route.effective_end_date && (
+                        <span>
+                          {" "}
+                          • Ends:{" "}
+                          <span className="font-medium text-slate-200">
+                            {route.effective_end_date}
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                      {stops.length === 0 ? (
+                      <p className="mt-2 text-[11px] text-slate-400">
+                        No stops have been added to this route yet. Contact the
+                        office if this looks wrong.
+                      </p>
+                    ) : (
+                      <div className="mt-2 space-y-1.5">
+                        {stops.map((stop) => {
+                          // Determine home vs school based on stop_type
+                          const isHomeStop =
+                            stop.stop_type === "pickup_home" ||
+                            stop.stop_type === "dropoff_home";
+
+                          const isSchoolStop =
+                            stop.stop_type === "pickup_school" ||
+                            stop.stop_type === "dropoff_school";
+
+                          // Decide Pick up vs Drop off strictly from stop_type
+                          let actionLabel = "Stop";
+                          if (
+                            stop.stop_type === "pickup_home" ||
+                            stop.stop_type === "pickup_school"
+                          ) {
+                            actionLabel = "Pick up";
+                          } else if (
+                            stop.stop_type === "dropoff_home" ||
+                            stop.stop_type === "dropoff_school"
+                          ) {
+                            actionLabel = "Drop off";
+                          }
+
+                          // Student name to show after the action
+                          const studentLabel = stop.student_name || "student";
+
+                          // Contacts logic – home stops: guardian; school stops: school
+                          const canCallGuardian =
+                            isHomeStop &&
+                            !!stop.primary_guardian_name &&
+                            !!stop.primary_guardian_phone;
+
+                          const canCallSchool =
+                            isSchoolStop && !!stop.name && !!stop.phone;
+
+                          return (
+                            <div
+                              key={stop.id}
+                              className="flex items-start gap-2 rounded-lg bg-slate-900/70 px-2 py-2"
+                            >
+                              {/* Sequence number */}
+                              <span className="w-6 text-[11px] font-semibold text-slate-400">
+                                {stop.sequence}.
+                              </span>
+
+                              {/* Main stop content */}
+                              <div className="flex-1 space-y-0.5">
+                                {/* Action + student name */}
+                                <p className="text-[12px] font-semibold text-slate-50">
+                                  {actionLabel} {studentLabel}
+                                </p>
+
+                                {/* Address */}
+                                <p className="text-[11px] text-slate-200">
+                                  {stop.address || "Address not set"}
+                                </p>
+
+                                {/* For school stops, also show the school name clearly */}
+                                {isSchoolStop && stop.name && (
+                                  <p className="text-[11px] text-slate-300">
+                                    School:{" "}
+                                    <span className="font-medium text-slate-100">
+                                      {stop.name}
+                                    </span>
+                                  </p>
+                                )}
+
+                                {/* Planned time */}
+                                {stop.planned_time && (
+                                  <p className="text-[11px] text-emerald-200">
+                                    Planned: {stop.planned_time}
+                                  </p>
+                                )}
+
+                                {/* Contacts – only show what's appropriate for this stop type */}
+                                {(canCallGuardian || canCallSchool) && (
+                                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                    {canCallGuardian && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          window.location.href = `tel:${stop.primary_guardian_phone}`;
+                                        }}
+                                        className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 active:scale-[0.97]"
+                                      >
+                                        Call guardian: {stop.primary_guardian_name}
+                                      </button>
+                                    )}
+                                    {canCallSchool && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          window.location.href = `tel:${stop.phone}`;
+                                        }}
+                                        className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 active:scale-[0.97]"
+                                      >
+                                        Call school: {stop.name}
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
       {/* Pre / Post selection */}
-     <section className="space-y-3">
-  {/* Instruction text above buttons */}
-  <div className="space-y-1">
-    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-      Pre-trip to clock in; post-trip to clock out.
-    </p>
-    <p className="text-sm text-slate-200/90">
-      Select <span className="font-semibold">Pre-trip</span> or{" "}
-      <span className="font-semibold">Post-trip</span> below to do your
-      daily inspection.
-    </p>
-  </div>
+      <section className="space-y-3">
+        <div className="space-y-1">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+            Pre-trip to clock in; post-trip to clock out.
+          </p>
+          <p className="text-sm text-slate-200/90">
+            Select <span className="font-semibold">Pre-trip</span> or{" "}
+            <span className="font-semibold">Post-trip</span> below to do your
+            daily inspection.
+          </p>
+        </div>
 
-  {/* Buttons laid out side by side */}
-  <div className="grid gap-4 sm:grid-cols-2">
-    {/* PRE-TRIP CARD */}
-    <button
-      type="button"
-      onClick={() => {
-        setSelectedInspectionType("pre");
-        setShift("");
-        setOdometer("");
-        setAnswers({});
-        setNotes("");
-        setSignatureName("");
-        setSubmitMessage(null);
-      }}
-      className={`group relative flex h-full flex-col justify-between rounded-2xl border px-4 py-3 text-left shadow-sm transition active:scale-[0.97] ${
-        selectedInspectionType === "pre"
-          ? "border-emerald-500/80 bg-emerald-900/30 shadow-lg"
-          : "border-white/10 bg-slate-950/60 hover:border-emerald-400/70 hover:bg-slate-900/80"
-      }`}
-    >
-      <div className="space-y-1.5">
-        <p className="inline-flex items-center rounded-full bg-emerald-500/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-200">
-          Pre-trip
-        </p>
-        <h2 className="text-base font-semibold text-slate-50">
-          Start your <span className="text-emerald-300">Pre-trip</span> inspection
-        </h2>
-        <p className="text-sm text-slate-300">
-          Complete the full checklist before you start driving to start your route.
-        </p>
-      </div>
-      <p className="mt-3 text-xs font-semibold text-emerald-300 group-hover:text-emerald-200">
-        Tap to begin →
-      </p>
-    </button>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedInspectionType("pre");
+              setShift("");
+              setOdometer("");
+              setAnswers({});
+              setNotes("");
+              setSignatureName("");
+              setSubmitMessage(null);
+            }}
+            className={`group relative flex h-full flex-col justify-between rounded-2xl border px-4 py-3 text-left shadow-sm transition active:scale-[0.97] ${
+              selectedInspectionType === "pre"
+                ? "border-emerald-500/80 bg-emerald-900/30 shadow-lg"
+                : "border-white/10 bg-slate-950/60 hover:border-emerald-400/70 hover:bg-slate-900/80"
+            }`}
+          >
+            <div className="space-y-1.5">
+              <p className="inline-flex items-center rounded-full bg-emerald-500/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-200">
+                Pre-trip
+              </p>
+              <h2 className="text-base font-semibold text-slate-50">
+                Start your{" "}
+                <span className="text-emerald-300">Pre-trip</span> inspection
+              </h2>
+              <p className="text-sm text-slate-300">
+                Complete the full checklist before you start driving to start
+                your route.
+              </p>
+            </div>
+            <p className="mt-3 text-xs font-semibold text-emerald-300 group-hover:text-emerald-200">
+              Tap to begin →
+            </p>
+          </button>
 
-    {/* POST-TRIP CARD */}
-    <button
-      type="button"
-      onClick={() => {
-        setSelectedInspectionType("post");
-        setShift("");
-        setOdometer("");
-        setAnswers({});
-        setNotes("");
-        setSignatureName("");
-        setSubmitMessage(null);
-      }}
-      className={`group relative flex h-full flex-col justify-between rounded-2xl border px-4 py-3 text-left shadow-sm transition active:scale-[0.97] ${
-        selectedInspectionType === "post"
-          ? "border-emerald-500/80 bg-emerald-900/30 shadow-lg"
-          : "border-white/10 bg-slate-950/60 hover:border-emerald-400/70 hover:bg-slate-900/80"
-      }`}
-    >
-      <div className="space-y-1.5">
-        <p className="inline-flex items-center rounded-full bg-slate-500/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-200">
-          Post-trip
-        </p>
-        <h2 className="text-base font-semibold text-slate-50">
-          Start your <span className="text-emerald-300">Post-trip</span> inspection
-        </h2>
-        <p className="text-sm text-slate-300">
-          Finish your route, check every seat and the exterior, then secure the vehicle.
-        </p>
-      </div>
-      <p className="mt-3 text-xs font-semibold text-emerald-300 group-hover:text-emerald-200">
-        Tap to begin →
-      </p>
-    </button>
-  </div>
-</section>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedInspectionType("post");
+              setShift("");
+              setOdometer("");
+              setAnswers({});
+              setNotes("");
+              setSignatureName("");
+              setSubmitMessage(null);
+            }}
+            className={`group relative flex h-full flex-col justify-between rounded-2xl border px-4 py-3 text-left shadow-sm transition active:scale-[0.97] ${
+              selectedInspectionType === "post"
+                ? "border-emerald-500/80 bg-emerald-900/30 shadow-lg"
+                : "border-white/10 bg-slate-950/60 hover:border-emerald-400/70 hover:bg-slate-900/80"
+            }`}
+          >
+            <div className="space-y-1.5">
+              <p className="inline-flex items-center rounded-full bg-slate-500/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-200">
+                Post-trip
+              </p>
+              <h2 className="text-base font-semibold text-slate-50">
+                Start your{" "}
+                <span className="text-emerald-300">Post-trip</span> inspection
+              </h2>
+              <p className="text-sm text-slate-300">
+                Finish your route, check every seat and the exterior, then
+                secure the vehicle.
+              </p>
+            </div>
+            <p className="mt-3 text-xs font-semibold text-emerald-300 group-hover:text-emerald-200">
+              Tap to begin →
+            </p>
+          </button>
+        </div>
+      </section>
 
       {error && (
         <section className="card border border-red-500/50 bg-red-950/40">
@@ -1249,7 +1763,7 @@ if (!isSessionReady) {
                     {currentDriver?.license_number ?? "N/A"}
                   </span>
                 </p>
-                  {selectedVehicle && (
+                {selectedVehicle && (
                   <>
                     <p className="text-[11px] text-slate-400">
                       Vehicle ID:{" "}
@@ -1271,7 +1785,6 @@ if (!isSessionReady) {
                     </p>
                   </>
                 )}
-
               </div>
 
               <div className="flex gap-2 text-[11px]">
@@ -1343,12 +1856,9 @@ if (!isSessionReady) {
                             key={item.id}
                             className="flex flex-col gap-2 rounded-lg border-b border-white/5 px-2 py-2 last:border-0 md:flex-row md:items-center md:justify-between md:gap-4 hover:bg-slate-900/40"
                           >
-                            {/* Question Text */}
                             <p className="text-[13px] text-slate-100 md:flex-1 md:text-xs">
                               {item.label}
                             </p>
-
-                            {/* Buttons: full-width row on mobile, compact on desktop */}
                             <div className="flex w-full gap-1.5 md:w-auto md:gap-1">
                               <AnswerButton
                                 value="pass"

@@ -291,7 +291,8 @@ export default function AdminStudentDetailPage({ params }: PageProps) {
     setSuccessMessage(null);
 
     try {
-      const payload = {
+      // ⬇️ REPLACE your current payload with this:
+        const payload: Record<string, any> = {
         full_name: fullName.trim(),
         student_id: studentNumber.trim() || null,
         pickup_address: pickupAddress.trim(),
@@ -300,8 +301,10 @@ export default function AdminStudentDetailPage({ params }: PageProps) {
         pickup_zip: pickupZip.trim() || null,
         school_id: schoolId || null,
         is_active: isActive,
+
+        // 👇 make sure these state variables exist on this page
         primary_guardian_name: primaryGuardianName.trim() || null,
-        primary_guardian_phone: primaryGuardianPhone.trim() || null,
+        primary_guardian_phone: primaryGuardianPhone.replace(/\D/g, "") || null,
         primary_guardian_relationship: primaryGuardianRelationship.trim() || null,
         };
 
@@ -312,6 +315,10 @@ export default function AdminStudentDetailPage({ params }: PageProps) {
         .eq("id", studentIdPk);
 
       if (error) throw error;
+
+       // ✅ redirect to Students tab
+      router.push("/admin#students");
+      return;
 
       setSuccessMessage("Student profile updated.");
       setTimeout(() => setSuccessMessage(null), 2500);
