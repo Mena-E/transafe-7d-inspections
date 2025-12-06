@@ -1409,6 +1409,44 @@ const loadTodayRoutes = async (driverId: string) => {
           </div>
         </section>
 
+            {/* Pre / Post selection – now two stacked full-width tabs */}
+      <section className="card space-y-3">
+        <div className="space-y-1">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+            Inspections
+          </p>
+          <p className="text-sm text-slate-200/90">
+            Choose{" "}
+            <span className="font-semibold">Pre Trip</span> to start your shift,
+            and{" "}
+            <span className="font-semibold">Post Trip</span> to close it out.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          {/* Pre Trip – green tab */}
+          <Link
+            href="/driver/pre-trip"
+            className="block w-full rounded-2xl bg-emerald-600 px-4 py-3 text-center text-sm font-semibold text-slate-950 shadow-md ring-1 ring-emerald-400/70 hover:bg-emerald-500 hover:ring-emerald-300 active:scale-[0.97] sm:text-base"
+          >
+            Pre Trip Inspection
+          </Link>
+
+          {/* Post Trip – navy tab */}
+          <Link
+            href="/driver/post-trip"
+            className="block w-full rounded-2xl bg-slate-800 px-4 py-3 text-center text-sm font-semibold text-slate-50 shadow-md ring-1 ring-slate-500/70 hover:bg-slate-700 hover:ring-slate-400 active:scale-[0.97] sm:text-base"
+          >
+            Post Trip Inspection
+          </Link>
+        </div>
+
+        <p className="text-[11px] leading-snug text-slate-400">
+          Tapping a tab will open the full checklist on its own page. Your time
+          clock remains linked to your inspections as before.
+        </p>
+      </section>
+
       {/* Quick nav */}
       <section className="card px-2 py-2">
         <nav className="grid grid-cols-3 gap-2 text-xs sm:text-sm">
@@ -1628,92 +1666,6 @@ const loadTodayRoutes = async (driverId: string) => {
         )}
       </section>
 
-      {/* Pre / Post selection */}
-      <section className="space-y-3">
-        <div className="space-y-1">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-            Pre-trip to clock in; post-trip to clock out.
-          </p>
-          <p className="text-sm text-slate-200/90">
-            Select <span className="font-semibold">Pre-trip</span> or{" "}
-            <span className="font-semibold">Post-trip</span> below to do your
-            daily inspection.
-          </p>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedInspectionType("pre");
-              setShift("");
-              setOdometer("");
-              setAnswers({});
-              setNotes("");
-              setSignatureName("");
-              setSubmitMessage(null);
-            }}
-            className={`group relative flex h-full flex-col justify-between rounded-2xl border px-4 py-3 text-left shadow-sm transition active:scale-[0.97] ${
-              selectedInspectionType === "pre"
-                ? "border-emerald-500/80 bg-emerald-900/30 shadow-lg"
-                : "border-white/10 bg-slate-950/60 hover:border-emerald-400/70 hover:bg-slate-900/80"
-            }`}
-          >
-            <div className="space-y-1.5">
-              <p className="inline-flex items-center rounded-full bg-emerald-500/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-200">
-                Pre-trip
-              </p>
-              <h2 className="text-base font-semibold text-slate-50">
-                Start your{" "}
-                <span className="text-emerald-300">Pre-trip</span> inspection
-              </h2>
-              <p className="text-sm text-slate-300">
-                Complete the full checklist before you start driving to start
-                your route.
-              </p>
-            </div>
-            <p className="mt-3 text-xs font-semibold text-emerald-300 group-hover:text-emerald-200">
-              Tap to begin →
-            </p>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedInspectionType("post");
-              setShift("");
-              setOdometer("");
-              setAnswers({});
-              setNotes("");
-              setSignatureName("");
-              setSubmitMessage(null);
-            }}
-            className={`group relative flex h-full flex-col justify-between rounded-2xl border px-4 py-3 text-left shadow-sm transition active:scale-[0.97] ${
-              selectedInspectionType === "post"
-                ? "border-emerald-500/80 bg-emerald-900/30 shadow-lg"
-                : "border-white/10 bg-slate-950/60 hover:border-emerald-400/70 hover:bg-slate-900/80"
-            }`}
-          >
-            <div className="space-y-1.5">
-              <p className="inline-flex items-center rounded-full bg-slate-500/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-200">
-                Post-trip
-              </p>
-              <h2 className="text-base font-semibold text-slate-50">
-                Start your{" "}
-                <span className="text-emerald-300">Post-trip</span> inspection
-              </h2>
-              <p className="text-sm text-slate-300">
-                Finish your route, check every seat and the exterior, then
-                secure the vehicle.
-              </p>
-            </div>
-            <p className="mt-3 text-xs font-semibold text-emerald-300 group-hover:text-emerald-200">
-              Tap to begin →
-            </p>
-          </button>
-        </div>
-      </section>
-
       {error && (
         <section className="card border border-red-500/50 bg-red-950/40">
           <p className="text-xs font-medium text-red-200">{error}</p>
@@ -1728,225 +1680,44 @@ const loadTodayRoutes = async (driverId: string) => {
         </section>
       )}
 
-      {/* Active inspection form */}
-      <section className="card space-y-4">
-        {selectedInspectionType === null ? (
-          <p className="text-xs text-slate-300 sm:text-sm">
-            Select <strong>Pre-trip</strong> or <strong>Post-trip</strong> to
-            begin. The full checklist will appear here.
-          </p>
-        ) : (
-          <>
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="space-y-1">
-                <h2 className="text-base font-semibold">
-                  {selectedInspectionType === "pre"
-                    ? "Pre-trip inspection checklist"
-                    : "Post-trip inspection checklist"}
-                </h2>
-                <p className="text-[11px] text-slate-400">
-                  Driver:{" "}
-                  <span className="font-semibold text-slate-100">
-                    {driverName.trim()}
-                  </span>{" "}
-                  • License:{" "}
-                  <span className="font-semibold text-slate-100">
-                    {currentDriver?.license_number ?? "N/A"}
-                  </span>
-                </p>
-                {selectedVehicle && (
-                  <>
-                    <p className="text-[11px] text-slate-400">
-                      Vehicle ID:{" "}
-                      <span className="font-semibold text-slate-100">
-                        {selectedVehicle.label || "N/A"}
-                      </span>{" "}
-                      • Plate:{" "}
-                      <span className="font-semibold text-slate-100">
-                        {selectedVehicle.plate || "N/A"}
-                      </span>
-                    </p>
-                    <p className="text-[11px] text-slate-400">
-                      Year/Make/Model:{" "}
-                      <span className="font-semibold text-slate-100">
-                        {selectedVehicle.year ?? ""}{" "}
-                        {selectedVehicle.make ?? ""}{" "}
-                        {selectedVehicle.model ?? ""}
-                      </span>
-                    </p>
-                  </>
-                )}
-              </div>
+            {/* Inspections info – now handled on separate pages */}
+      <section className="card space-y-2">
+        <h2 className="text-sm font-semibold text-slate-50">
+          Daily inspections
+        </h2>
+        <p className="text-sm text-slate-300">
+          Use the{" "}
+          <span className="font-semibold text-emerald-300">
+            Pre Trip Inspection
+          </span>{" "}
+          and{" "}
+          <span className="font-semibold text-slate-200">
+            Post Trip Inspection
+          </span>{" "}
+          buttons above to complete your daily checks. Your time clock will
+          still start after a completed pre-trip and stop after a completed
+          post-trip.
+        </p>
+        <p className="text-[11px] text-slate-400">
+          If something looks wrong or you have trouble submitting an inspection,
+          contact the Transafe office.
+        </p>
+      </section>
 
-              <div className="flex gap-2 text-[11px]">
-                <div className="flex items-center gap-1">
-                  <span className="inline-block h-3 w-3 rounded bg-emerald-600" />{" "}
-                  PASS
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="inline-block h-3 w-3 rounded bg-red-600" />{" "}
-                  FAIL
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="inline-block h-3 w-3 rounded bg-slate-600" />{" "}
-                  N/A
-                </div>
-              </div>
-            </div>
-
-            {/* Odometer */}
-            <div className="space-y-2">
-              <label className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">
-                Odometer (required)
-              </label>
-              <input
-                type="text"
-                value={odometer}
-                onChange={(e) => setOdometer(e.target.value)}
-                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-                placeholder="Current odometer reading (e.g. 123456)"
-              />
-            </div>
-
-            {/* Shift selector */}
-            <div className="space-y-2">
-              <label className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">
-                Shift
-              </label>
-              <div className="flex gap-2">
-                {(["AM", "Midday", "PM"] as ShiftType[]).map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setShift(s)}
-                    className={`flex-1 rounded-xl px-3 py-2 text-xs font-semibold transition active:scale-[0.96] ${
-                      shift === s
-                        ? "bg-emerald-600 text-white"
-                        : "bg-slate-900 text-slate-100 ring-1 ring-white/10 hover:bg-slate-800"
-                    }`}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Checklist */}
-            <div className="space-y-3">
-              {Object.entries(groupedChecklist).map(
-                ([category, itemsInCategory]) => (
-                  <div key={category} className="space-y-1.5">
-                    <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">
-                      {category}
-                    </h3>
-                    <div className="space-y-1.5 rounded-xl bg-slate-950/40 p-2">
-                      {itemsInCategory.map((item) => {
-                        const value = answers[item.id];
-                        return (
-                          <div
-                            key={item.id}
-                            className="flex flex-col gap-2 rounded-lg border-b border-white/5 px-2 py-2 last:border-0 md:flex-row md:items-center md:justify-between md:gap-4 hover:bg-slate-900/40"
-                          >
-                            <p className="text-[13px] text-slate-100 md:flex-1 md:text-xs">
-                              {item.label}
-                            </p>
-                            <div className="flex w-full gap-1.5 md:w-auto md:gap-1">
-                              <AnswerButton
-                                value="pass"
-                                label="P"
-                                selected={value === "pass"}
-                                onClick={() => updateAnswer(item.id, "pass")}
-                              />
-                              <AnswerButton
-                                value="fail"
-                                label="F"
-                                selected={value === "fail"}
-                                onClick={() => updateAnswer(item.id, "fail")}
-                              />
-                              <AnswerButton
-                                value="na"
-                                label="N"
-                                selected={value === "na"}
-                                onClick={() => updateAnswer(item.id, "na")}
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ),
-              )}
-            </div>
-
-            {/* Notes */}
-            <div className="space-y-2">
-              <label className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">
-                Notes / defects (if anything failed)
-              </label>
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="min-h-[70px] w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-                placeholder="Describe any failed items, defects, or other notes."
-              />
-            </div>
-
-            {/* Signature */}
-            <div className="space-y-2">
-              <label className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">
-                Signature (type your full name)
-              </label>
-              <input
-                type="text"
-                value={signatureName}
-                onChange={(e) => setSignatureName(e.target.value)}
-                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-                placeholder="Type your name to certify this inspection"
-              />
-              <p className="text-[11px] text-slate-400">
-                By typing your name you certify that you have completed this{" "}
-                {selectedInspectionType === "pre"
-                  ? "pre-trip"
-                  : "post-trip"}{" "}
-                inspection truthfully on today&apos;s date.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleSubmitInspection}
-              className={`btn-primary w-full text-sm ${
-                !canSubmit ? "cursor-not-allowed opacity-50" : ""
-              }`}
-              disabled={!canSubmit}
-            >
-              {submitting ? "Submitting..." : "Submit inspection"}
-            </button>
-
-            {!allAnswered && (
-              <p className="mt-1 text-[11px] text-amber-300">
-                Please select Pass, Fail, or N/A for every checklist item before
-                submitting.
-              </p>
-            )}
-            {!odometer.trim() && (
-              <p className="mt-1 text-[11px] text-amber-300">
-                Please enter the current odometer reading.
-              </p>
-            )}
-            {!shift && (
-              <p className="mt-1 text-[11px] text-amber-300">
-                Please choose your shift (AM, Midday, or PM).
-              </p>
-            )}
-            {!signatureName.trim() && (
-              <p className="mt-1 text-[11px] text-amber-300">
-                Type your name in the signature field to enable submission.
-              </p>
-            )}
-          </>
-        )}
+            {/* App sign-out footer */}
+      <section className="mt-2 border-t border-slate-800 pt-3 text-[11px] text-slate-500">
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="font-semibold text-slate-200 underline-offset-2 hover:underline"
+        >
+          Sign out of app
+        </button>
+        <p className="mt-1 leading-snug text-slate-500">
+          This only signs you out of the Transafe app. It does not clock you
+          out. Your work hours are tracked separately when you start and end
+          your shifts.
+        </p>
       </section>
     </div>
   );
