@@ -333,6 +333,31 @@ function getTodayDateString() {
   return `${year}-${month}-${day}`;
 }
 
+// Convert "HH:MM" or "HH:MM:SS" (24-hour) into "h:MM AM/PM"
+function formatTimeTo12Hour(raw: string | null): string {
+  if (!raw) return "";
+
+  // Handle values like "15:00" or "15:00:00"
+  const parts = raw.split(":");
+  if (parts.length < 2) return raw; // fallback if unexpected format
+
+  const hour24 = parseInt(parts[0], 10);
+  const minute = parts[1] ?? "00";
+
+  if (Number.isNaN(hour24)) return raw;
+
+  const isPM = hour24 >= 12;
+  let hour12 = hour24 % 12;
+  if (hour12 === 0) hour12 = 12;
+
+  const suffix = isPM ? "PM" : "AM";
+
+  // Ensure minutes are always two digits
+  const mm = minute.padStart(2, "0");
+
+  return `${hour12}:${mm} ${suffix}`;
+}
+
 // Decide whether this stop is "Pick up" or "Drop off"
 function getStopAction(
   direction: "AM" | "MIDDAY" | "PM",
@@ -1186,8 +1211,14 @@ const loadTodayRoutes = async (driverId: string) => {
     }
   };
 
-    const handleMarkRouteComplete = async (routeId: string) => {
-    if (!currentDriver) return;
+  const handleMarkRouteComplete = async (routeId: string) => {
+    if (!currentDriver) {
+      // Extra safety: if for some reason the driver session isn't fully loaded
+      setTodayRoutesError(
+        "Your driver session is not fully loaded yet. Please wait a moment and try again."
+      );
+      return;
+    }
 
     // Ask the driver to confirm before marking the route as complete
     const confirmed = window.confirm(
@@ -1195,7 +1226,7 @@ const loadTodayRoutes = async (driverId: string) => {
     );
 
     if (!confirmed) {
-      // Driver changed their mind – do nothing.
+      // Driver changed their mind – do nothing
       return;
     }
 
@@ -1203,6 +1234,7 @@ const loadTodayRoutes = async (driverId: string) => {
     setCompletingRouteId(routeId);
 
     try {
+      // 1) Record the completion in Supabase (so it stays hidden on refresh)
       const { error: insertErr } = await supabase
         .from("driver_route_completions")
         .upsert(
@@ -1212,14 +1244,18 @@ const loadTodayRoutes = async (driverId: string) => {
             work_date: todayStr,
           },
           {
+            // Make sure you have a unique constraint on (driver_id, route_id, work_date)
+            // named something like "driver_route_completions_driver_id_route_id_work_date_key"
+            // OR adjust this to the actual constraint name.
             onConflict: "driver_id,route_id,work_date",
           },
         );
 
       if (insertErr) throw insertErr;
 
-      // Optimistically remove this route from today's list
+      // 2) Immediately hide this route from the UI (no refresh needed)
       setTodayRoutes((prev) => prev.filter((r) => r.id !== routeId));
+
       setTodayRouteStops((prev) => {
         const copy = { ...prev };
         delete copy[routeId];
@@ -1667,7 +1703,7 @@ const loadTodayRoutes = async (driverId: string) => {
                                 <p className="inline-flex items-center rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-200">
                                   Planned:{" "}
                                   <span className="ml-2 text-sm font-bold tracking-normal text-emerald-100">
-                                    {stop.planned_time}
+                                    {formatTimeTo12Hour(stop.planned_time)}
                                   </span>
                                 </p>
                               )}
