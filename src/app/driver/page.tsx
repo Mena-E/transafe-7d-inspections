@@ -1776,40 +1776,34 @@ const loadTodayRoutes = async (driverId: string) => {
                                   </button>
                                 </div>
                               )}
-
                               {/* Contacts – only show what's appropriate for this stop type */}
                               {(canCallGuardian || canCallSchool) && (
                                 <div className="mt-2 flex flex-wrap items-center gap-2">
                                   {canCallGuardian && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        window.location.href = `tel:${stop.primary_guardian_phone}`;
-                                      }}
+                                    <a
+                                      href={`tel:${stop.primary_guardian_phone}`}
                                       className="inline-flex items-center rounded-full border border-emerald-500/70 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-200 active:scale-[0.97]"
                                     >
                                       Call guardian:{" "}
                                       <span className="ml-1">
                                         {stop.primary_guardian_name}
                                       </span>
-                                    </button>
+                                    </a>
                                   )}
                                   {canCallSchool && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        window.location.href = `tel:${stop.phone}`;
-                                      }}
+                                    <a
+                                      href={`tel:${stop.phone}`}
                                       className="inline-flex items-center rounded-full border border-emerald-500/70 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-200 active:scale-[0.97]"
                                     >
                                       Call school:{" "}
                                       <span className="ml-1">
                                         {stop.name}
                                       </span>
-                                    </button>
+                                    </a>
                                   )}
                                 </div>
                               )}
+
                             </div>
                           </div>
                         );
