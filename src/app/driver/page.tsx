@@ -390,6 +390,8 @@ export default function DriverPage() {
     Record<string, RouteStopForDriver[]>
   >({});
 
+  const [completingRouteId, setCompletingRouteId] = useState<string | null>(null);
+
   // Restore previous driver session from localStorage
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -622,13 +624,12 @@ export default function DriverPage() {
     }
   };
 
-  // ==== LOAD TODAY'S ROUTES FOR THIS DRIVER ====
+// ==== LOAD TODAY'S ROUTES FOR THIS DRIVER ====
 const loadTodayRoutes = async (driverId: string) => {
   setTodayRoutesLoading(true);
   setTodayRoutesError(null);
 
   try {
-    // Optional: still keep the date string if you use it for logs/display
     const todayStr = getTodayDateString();
 
     // Use LOCAL time for today's date and day-of-week
@@ -642,14 +643,13 @@ const loadTodayRoutes = async (driverId: string) => {
       .select("id, route_id, day_of_week, is_active")
       .eq("driver_id", driverId)
       .eq("is_active", true)
-      .eq("day_of_week", todayDow); // <-- day_of_week stored as 0–6 in Supabase
+      .eq("day_of_week", todayDow);
 
     if (assignmentErr) throw assignmentErr;
 
     const assignments = (assignmentData || []) as any[];
 
-    // 2) If NO assignments for today's day_of_week, then "Today's routes"
-    //    should be empty (do NOT fall back to other days).
+    // 2) If NO assignments for today's day_of_week, then "Today's routes" should be empty
     if (!assignments || assignments.length === 0) {
       setTodayRoutes([]);
       setTodayRouteStops({});
@@ -671,246 +671,253 @@ const loadTodayRoutes = async (driverId: string) => {
       return;
     }
 
-      // 3) Load routes + raw stops (now with stop_type and school_id)
-      const [
-        { data: routesData, error: routesErr },
-        { data: stopsData, error: stopsErr },
-      ] = await Promise.all([
-        supabase
-          .from("routes")
-          .select(
-            "id, name, direction, is_active, effective_start_date, effective_end_date",
-          )
-          .in("id", routeIds),
-        supabase
-          .from("route_stops")
-          .select(
-            "id, route_id, sequence, address, planned_time, stop_type, student_id, school_id",
-          )
-          .in("route_id", routeIds)
-          .order("sequence", { ascending: true }),
-      ]);
+    // 4) Load routes + raw stops
+    const [
+      { data: routesData, error: routesErr },
+      { data: stopsData, error: stopsErr },
+      { data: completionsData, error: completionsErr },
+    ] = await Promise.all([
+      supabase
+        .from("routes")
+        .select(
+          "id, name, direction, is_active, effective_start_date, effective_end_date",
+        )
+        .in("id", routeIds),
+      supabase
+        .from("route_stops")
+        .select(
+          "id, route_id, sequence, address, planned_time, stop_type, student_id, school_id",
+        )
+        .in("route_id", routeIds)
+        .order("sequence", { ascending: true }),
+      supabase
+        .from("driver_route_completions")
+        .select("route_id")
+        .eq("driver_id", driverId)
+        .eq("work_date", todayStr)
+        .in("route_id", routeIds),
+    ]);
 
-      if (routesErr) throw routesErr;
-      if (stopsErr) throw stopsErr;
+    if (routesErr) throw routesErr;
+    if (stopsErr) throw stopsErr;
+    if (completionsErr) throw completionsErr;
 
-      // 4) Build a routeId -> direction map (we may use this in future if needed)
-      const directionByRouteId = new Map<string, "AM" | "MIDDAY" | "PM">();
-      (routesData || []).forEach((r: any) => {
-        if (r.id && (r.direction === "AM" || r.direction === "MIDDAY" || r.direction === "PM")) {
-          directionByRouteId.set(r.id, r.direction);
-        }
-      });
+    // Completed routes for today for this driver
+    const completedRouteIdsToday = new Set(
+      ((completionsData || []) as any[]).map((row: any) => row.route_id),
+    );
 
-      // 5) Collect student_ids and school_ids from these stops
-      const studentIdsSet = new Set<string>();
-      const schoolIdsSet = new Set<string>();
+    // 5) Collect student_ids and school_ids from these stops
+    const studentIdsSet = new Set<string>();
+    const schoolIdsSet = new Set<string>();
 
-      (stopsData || []).forEach((row: any) => {
-        if (row.student_id) {
-          studentIdsSet.add(row.student_id as string);
-        }
-        if (row.school_id) {
-          schoolIdsSet.add(row.school_id as string);
-        }
-      });
-
-      const studentIds = Array.from(studentIdsSet);
-
-      // Build lookup maps
-      const studentsById = new Map<
-        string,
-        {
-          id: string;
-          full_name: string | null;
-          primary_guardian_name: string | null;
-          primary_guardian_phone: string | null;
-          pickup_address: string | null;
-          pickup_city: string | null;
-          pickup_state: string | null;
-          pickup_zip: string | null;
-          school_id: string | null;
-        }
-      >();
-
-      const schoolsById = new Map<
-        string,
-        {
-          name: string | null;
-          phone: string | null;
-          address: string | null;
-        }
-      >();
-
-      // 5a) Load students (if any), and add their school_ids into the schoolIdsSet as well
-      if (studentIds.length > 0) {
-        const { data: studentsData, error: studentsErr } = await supabase
-          .from("students")
-          .select(
-            "id, full_name, primary_guardian_name, primary_guardian_phone, pickup_address, pickup_city, pickup_state, pickup_zip, school_id",
-          )
-          .in("id", studentIds);
-
-        if (studentsErr) throw studentsErr;
-
-        (studentsData || []).forEach((st: any) => {
-          studentsById.set(st.id, {
-            id: st.id,
-            full_name: st.full_name ?? null,
-            primary_guardian_name: st.primary_guardian_name ?? null,
-            primary_guardian_phone: st.primary_guardian_phone ?? null,
-            pickup_address: st.pickup_address ?? null,
-            pickup_city: st.pickup_city ?? null,
-            pickup_state: st.pickup_state ?? null,
-            pickup_zip: st.pickup_zip ?? null,
-            school_id: st.school_id ?? null,
-          });
-
-          if (st.school_id) {
-            schoolIdsSet.add(st.school_id as string);
-          }
-        });
+    (stopsData || []).forEach((row: any) => {
+      if (row.student_id) {
+        studentIdsSet.add(row.student_id as string);
       }
-
-      // 5b) Load schools (from both stops and students)
-      const schoolIdArray = Array.from(schoolIdsSet);
-      if (schoolIdArray.length > 0) {
-        const { data: schoolsData, error: schoolsErr } = await supabase
-          .from("schools")
-          .select("id, name, phone, address")
-          .in("id", schoolIdArray);
-
-        if (schoolsErr) throw schoolsErr;
-
-        (schoolsData || []).forEach((sc: any) => {
-          schoolsById.set(sc.id, {
-            name: sc.name ?? null,
-            phone: sc.phone ?? null,
-            address: sc.address ?? null,
-          });
-        });
+      if (row.school_id) {
+        schoolIdsSet.add(row.school_id as string);
       }
+    });
 
-      // 6) Filter routes that are active today
-      const filteredRoutes = (routesData || []).filter((r: any) => {
-        const startOk =
-          !r.effective_start_date ||
-          new Date(r.effective_start_date) <= today;
-        const endOk =
-          !r.effective_end_date || new Date(r.effective_end_date) >= today;
-        return startOk && endOk && r.is_active;
-      }) as any[];
+    const studentIds = Array.from(studentIdsSet);
 
-      const activeRouteIds = new Set(filteredRoutes.map((r: any) => r.id));
+    const studentsById = new Map<
+      string,
+      {
+        id: string;
+        full_name: string | null;
+        primary_guardian_name: string | null;
+        primary_guardian_phone: string | null;
+        pickup_address: string | null;
+        pickup_city: string | null;
+        pickup_state: string | null;
+        pickup_zip: string | null;
+        school_id: string | null;
+      }
+    >();
 
-      // 7) Build stops map only for active routes, with full address + labels + contacts
-      const stopsMap: Record<string, RouteStopForDriver[]> = {};
+    const schoolsById = new Map<
+      string,
+      {
+        name: string | null;
+        phone: string | null;
+        address: string | null;
+      }
+    >();
 
-      (stopsData || []).forEach((row: any) => {
-        if (!activeRouteIds.has(row.route_id)) return;
+    // 5a) Load students
+    if (studentIds.length > 0) {
+      const { data: studentsData, error: studentsErr } = await supabase
+        .from("students")
+        .select(
+          "id, full_name, primary_guardian_name, primary_guardian_phone, pickup_address, pickup_city, pickup_state, pickup_zip, school_id",
+        )
+        .in("id", studentIds);
 
-        const stopTypeRaw = row.stop_type as RouteStopForDriver["stop_type"] | null;
+      if (studentsErr) throw studentsErr;
 
-        const isHomeStop =
-          stopTypeRaw === "pickup_home" || stopTypeRaw === "dropoff_home";
-        const isSchoolStop =
-          stopTypeRaw === "pickup_school" || stopTypeRaw === "dropoff_school";
+      (studentsData || []).forEach((st: any) => {
+        studentsById.set(st.id, {
+          id: st.id,
+          full_name: st.full_name ?? null,
+          primary_guardian_name: st.primary_guardian_name ?? null,
+          primary_guardian_phone: st.primary_guardian_phone ?? null,
+          pickup_address: st.pickup_address ?? null,
+          pickup_city: st.pickup_city ?? null,
+          pickup_state: st.pickup_state ?? null,
+          pickup_zip: st.pickup_zip ?? null,
+          school_id: st.school_id ?? null,
+        });
 
-        const student =
-          row.student_id && studentsById.size > 0
-            ? studentsById.get(row.student_id)
-            : null;
-
-        // Prefer an explicit school_id on the stop; otherwise fall back to the student's school
-        let school =
-          row.school_id && schoolsById.size > 0
-            ? schoolsById.get(row.school_id)
-            : null;
-
-        if (!school && student?.school_id && schoolsById.size > 0) {
-          const fromStudent = schoolsById.get(student.school_id);
-          if (fromStudent) {
-            school = fromStudent;
-          }
+        if (st.school_id) {
+          schoolIdsSet.add(st.school_id as string);
         }
-
-        // Build address:
-        // - For home stops: use student's pickup_* fields
-        // - For school stops: use school's address
-        // - Otherwise: use route_stops.address
-        let effectiveAddress: string | null = row.address ?? null;
-
-        if (isHomeStop && student) {
-          const parts: string[] = [];
-
-          if (student.pickup_address && student.pickup_address.trim()) {
-            parts.push(student.pickup_address.trim());
-          }
-          if (student.pickup_city && student.pickup_city.trim()) {
-            parts.push(student.pickup_city.trim());
-          }
-
-          const stateZipParts: string[] = [];
-          if (student.pickup_state && student.pickup_state.trim()) {
-            stateZipParts.push(student.pickup_state.trim());
-          }
-          if (student.pickup_zip && student.pickup_zip.trim()) {
-            stateZipParts.push(student.pickup_zip.trim());
-          }
-          if (stateZipParts.length > 0) {
-            parts.push(stateZipParts.join(" "));
-          }
-
-          const fullAddress = parts.join(", ");
-          if (fullAddress) {
-            effectiveAddress = fullAddress;
-          }
-        } else if (isSchoolStop && school?.address) {
-          effectiveAddress = school.address;
-        }
-
-        const stop: RouteStopForDriver = {
-          id: row.id,
-          route_id: row.route_id,
-          sequence: row.sequence,
-          address: effectiveAddress,
-          planned_time: row.planned_time,
-          stop_type: stopTypeRaw || "other",
-          student_name: student?.full_name ?? null,
-          primary_guardian_name: student?.primary_guardian_name ?? null,
-          primary_guardian_phone: student?.primary_guardian_phone ?? null,
-          name: school?.name ?? null,
-          phone: school?.phone ?? null,
-        };
-
-        if (!stopsMap[row.route_id]) {
-          stopsMap[row.route_id] = [];
-        }
-
-        stopsMap[row.route_id].push(stop);
       });
-
-      setTodayRoutes(
-        filteredRoutes.map((r: any) => ({
-          id: r.id,
-          name: r.name,
-          direction: r.direction,
-          is_active: r.is_active,
-          effective_start_date: r.effective_start_date,
-          effective_end_date: r.effective_end_date,
-        })),
-      );
-      setTodayRouteStops(stopsMap);
-    } catch (err: any) {
-      console.error("Failed to load today's routes for driver", err);
-      setTodayRoutesError(
-        err?.message ??
-          "Failed to load today's routes. Please contact admin.",
-      );
-    } finally {
-      setTodayRoutesLoading(false);
     }
-  };
+
+    // 5b) Load schools
+    const schoolIdArray = Array.from(schoolIdsSet);
+    if (schoolIdArray.length > 0) {
+      const { data: schoolsData, error: schoolsErr } = await supabase
+        .from("schools")
+        .select("id, name, phone, address")
+        .in("id", schoolIdArray);
+
+      if (schoolsErr) throw schoolsErr;
+
+      (schoolsData || []).forEach((sc: any) => {
+        schoolsById.set(sc.id, {
+          name: sc.name ?? null,
+          phone: sc.phone ?? null,
+          address: sc.address ?? null,
+        });
+      });
+    }
+
+    // 6) Filter routes that are active today and NOT marked complete
+    const filteredRoutes = (routesData || []).filter((r: any) => {
+      const startOk =
+        !r.effective_start_date ||
+        new Date(r.effective_start_date) <= today;
+      const endOk =
+        !r.effective_end_date || new Date(r.effective_end_date) >= today;
+      const isCompleted = completedRouteIdsToday.has(r.id);
+      return startOk && endOk && r.is_active && !isCompleted;
+    }) as any[];
+
+    if (filteredRoutes.length === 0) {
+      setTodayRoutes([]);
+      setTodayRouteStops({});
+      return;
+    }
+
+    const activeRouteIds = new Set(filteredRoutes.map((r: any) => r.id));
+
+    // 7) Build stops map only for active, non-completed routes
+    const stopsMap: Record<string, RouteStopForDriver[]> = {};
+
+    (stopsData || []).forEach((row: any) => {
+      if (!activeRouteIds.has(row.route_id)) return;
+
+      const stopTypeRaw =
+        (row.stop_type as RouteStopForDriver["stop_type"]) || "other";
+
+      const isHomeStop =
+        stopTypeRaw === "pickup_home" || stopTypeRaw === "dropoff_home";
+      const isSchoolStop =
+        stopTypeRaw === "pickup_school" || stopTypeRaw === "dropoff_school";
+
+      const student =
+        row.student_id && studentsById.size > 0
+          ? studentsById.get(row.student_id)
+          : null;
+
+      let school =
+        row.school_id && schoolsById.size > 0
+          ? schoolsById.get(row.school_id)
+          : null;
+
+      if (!school && student?.school_id && schoolsById.size > 0) {
+        const fromStudent = schoolsById.get(student.school_id);
+        if (fromStudent) {
+          school = fromStudent;
+        }
+      }
+
+      let effectiveAddress: string | null = row.address ?? null;
+
+      if (isHomeStop && student) {
+        const parts: string[] = [];
+
+        if (student.pickup_address && student.pickup_address.trim()) {
+          parts.push(student.pickup_address.trim());
+        }
+        if (student.pickup_city && student.pickup_city.trim()) {
+          parts.push(student.pickup_city.trim());
+        }
+
+        const stateZipParts: string[] = [];
+        if (student.pickup_state && student.pickup_state.trim()) {
+          stateZipParts.push(student.pickup_state.trim());
+        }
+        if (student.pickup_zip && student.pickup_zip.trim()) {
+          stateZipParts.push(student.pickup_zip.trim());
+        }
+        if (stateZipParts.length > 0) {
+          parts.push(stateZipParts.join(" "));
+        }
+
+        const fullAddress = parts.join(", ");
+        if (fullAddress) {
+          effectiveAddress = fullAddress;
+        }
+      } else if (isSchoolStop && school?.address) {
+        effectiveAddress = school.address;
+      }
+
+      const stop: RouteStopForDriver = {
+        id: row.id,
+        route_id: row.route_id,
+        sequence: row.sequence,
+        address: effectiveAddress,
+        planned_time: row.planned_time,
+        stop_type: stopTypeRaw,
+        student_name: student?.full_name ?? null,
+        primary_guardian_name: student?.primary_guardian_name ?? null,
+        primary_guardian_phone: student?.primary_guardian_phone ?? null,
+        name: school?.name ?? null,
+        phone: school?.phone ?? null,
+      };
+
+      if (!stopsMap[row.route_id]) {
+        stopsMap[row.route_id] = [];
+      }
+
+      stopsMap[row.route_id].push(stop);
+    });
+
+    setTodayRoutes(
+      filteredRoutes.map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        direction: r.direction,
+        is_active: r.is_active,
+        effective_start_date: r.effective_start_date,
+        effective_end_date: r.effective_end_date,
+      })),
+    );
+    setTodayRouteStops(stopsMap);
+  } catch (err: any) {
+    console.error("Failed to load today's routes for driver", err);
+    setTodayRoutesError(
+      err?.message ??
+        "Failed to load today's routes. Please contact admin.",
+    );
+  } finally {
+    setTodayRoutesLoading(false);
+  }
+};
 
   // When a driver session becomes ready, load today's time and today's routes
   useEffect(() => {
@@ -1176,6 +1183,55 @@ const loadTodayRoutes = async (driverId: string) => {
       setActiveSince(null);
     } catch (err: any) {
       console.error("Failed to stop work session", err);
+    }
+  };
+
+    const handleMarkRouteComplete = async (routeId: string) => {
+    if (!currentDriver) return;
+
+    // Ask the driver to confirm before marking the route as complete
+    const confirmed = window.confirm(
+      "Are you sure you want to mark this route as COMPLETE for today? Once confirmed, it will disappear from today's list on this device."
+    );
+
+    if (!confirmed) {
+      // Driver changed their mind – do nothing.
+      return;
+    }
+
+    const todayStr = getTodayDateString();
+    setCompletingRouteId(routeId);
+
+    try {
+      const { error: insertErr } = await supabase
+        .from("driver_route_completions")
+        .upsert(
+          {
+            driver_id: currentDriver.id,
+            route_id: routeId,
+            work_date: todayStr,
+          },
+          {
+            onConflict: "driver_id,route_id,work_date",
+          },
+        );
+
+      if (insertErr) throw insertErr;
+
+      // Optimistically remove this route from today's list
+      setTodayRoutes((prev) => prev.filter((r) => r.id !== routeId));
+      setTodayRouteStops((prev) => {
+        const copy = { ...prev };
+        delete copy[routeId];
+        return copy;
+      });
+    } catch (err) {
+      console.error("Failed to mark route as complete", err);
+      setTodayRoutesError(
+        "Could not mark route as complete. Please try again or contact admin.",
+      );
+    } finally {
+      setCompletingRouteId(null);
     }
   };
 
@@ -1472,23 +1528,23 @@ const loadTodayRoutes = async (driverId: string) => {
       </section>
 
       {/* === TODAY'S ROUTES SECTION === */}
-      <section className="card space-y-3">
+      <section className="card space-y-4">
         <div className="flex items-center justify-between gap-2">
           <div>
-            <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">
+            <h2 className="text-base font-semibold uppercase tracking-[0.16em] text-slate-200">
               Today&apos;s routes
             </h2>
-            <p className="text-[11px] text-slate-400">
+            <p className="text-xs text-slate-300">
               Based on your weekly route assignments for today.
             </p>
           </div>
           {todayRoutesLoading && (
-            <p className="text-[11px] text-slate-400">Loading…</p>
+            <p className="text-xs text-slate-300">Loading…</p>
           )}
         </div>
 
         {todayRoutesError && (
-          <p className="text-xs font-medium text-rose-400">
+          <p className="text-sm font-medium text-rose-300">
             {todayRoutesError}
           </p>
         )}
@@ -1496,40 +1552,40 @@ const loadTodayRoutes = async (driverId: string) => {
         {!todayRoutesLoading &&
           !todayRoutesError &&
           todayRoutes.length === 0 && (
-            <p className="text-xs text-slate-300">
+            <p className="text-sm text-slate-200">
               You have no active routes assigned for today.
             </p>
           )}
 
         {todayRoutes.length > 0 && (
-          <div className="space-y-3">
+          <div className="space-y-4">
             {todayRoutes.map((route) => {
               const stops = todayRouteStops[route.id] || [];
 
               return (
                 <div
                   key={route.id}
-                  className="rounded-xl border border-white/10 bg-slate-950/70 p-3"
+                  className="rounded-2xl border border-white/10 bg-slate-950/80 p-4 space-y-4"
                 >
-                  <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-                    <div>
-                                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                      {route.direction === "AM"
-                        ? "Morning route"
-                        : route.direction === "MIDDAY"
-                        ? "Midday route"
-                        : "Afternoon route"}
-                    </p>
-                    <h3 className="text-base font-semibold text-slate-50">
-                      {route.name}
-                    </h3>
-                    
+                  {/* Header */}
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between">
+                    <div className="space-y-0.5">
+                      <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        {route.direction === "AM"
+                          ? "Morning route"
+                          : route.direction === "MIDDAY"
+                          ? "Midday route"
+                          : "Afternoon route"}
+                      </p>
+                      <h3 className="text-lg font-semibold text-slate-50">
+                        {route.name}
+                      </h3>
                     </div>
-                    <div className="text-[11px] text-slate-400">
+                    <div className="text-xs text-slate-300 text-right">
                       {route.effective_start_date && (
                         <span>
                           Starts:{" "}
-                          <span className="font-medium text-slate-200">
+                          <span className="font-medium text-slate-100">
                             {route.effective_start_date}
                           </span>
                         </span>
@@ -1538,216 +1594,254 @@ const loadTodayRoutes = async (driverId: string) => {
                         <span>
                           {" "}
                           • Ends:{" "}
-                          <span className="font-medium text-slate-200">
+                          <span className="font-medium text-slate-100">
                             {route.effective_end_date}
                           </span>
                         </span>
                       )}
                     </div>
                   </div>
-                      {stops.length === 0 ? (
-                      <p className="mt-2 text-[11px] text-slate-400">
-                        No stops have been added to this route yet. Contact the
-                        office if this looks wrong.
-                      </p>
-                    ) : (
-                      <div className="mt-2 space-y-1.5">
-                          {stops.map((stop) => {
-                            // Determine home vs school based on stop_type
-                            const isHomeStop =
-                              stop.stop_type === "pickup_home" ||
-                              stop.stop_type === "dropoff_home";
 
-                            const isSchoolStop =
-                              stop.stop_type === "pickup_school" ||
-                              stop.stop_type === "dropoff_school";
+                  {/* Subtle divider */}
+                  <div className="border-t border-white/10" />
 
-                            // Decide Pick up vs Drop off strictly from stop_type
-                            let actionLabel = "Stop";
-                            if (
-                              stop.stop_type === "pickup_home" ||
-                              stop.stop_type === "pickup_school"
-                            ) {
-                              actionLabel = "Pick up";
-                            } else if (
-                              stop.stop_type === "dropoff_home" ||
-                              stop.stop_type === "dropoff_school"
-                            ) {
-                              actionLabel = "Drop off";
-                            }
+                  {/* Stops list */}
+                  {stops.length === 0 ? (
+                    <p className="mt-1 text-sm text-slate-300">
+                      No stops have been added to this route yet. Contact the
+                      office if this looks wrong.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {stops.map((stop) => {
+                        // Determine home vs school based on stop_type
+                        const isHomeStop =
+                          stop.stop_type === "pickup_home" ||
+                          stop.stop_type === "dropoff_home";
 
-                            // Student name to show after the action
-                            const studentLabel = stop.student_name || "student";
+                        const isSchoolStop =
+                          stop.stop_type === "pickup_school" ||
+                          stop.stop_type === "dropoff_school";
 
-                            // Contacts logic – home stops: guardian; school stops: school
-                            const canCallGuardian =
-                              isHomeStop &&
-                              !!stop.primary_guardian_name &&
-                              !!stop.primary_guardian_phone;
+                        // Decide Pick up vs Drop off strictly from stop_type
+                        let actionLabel = "Stop";
+                        if (
+                          stop.stop_type === "pickup_home" ||
+                          stop.stop_type === "pickup_school"
+                        ) {
+                          actionLabel = "Pick up";
+                        } else if (
+                          stop.stop_type === "dropoff_home" ||
+                          stop.stop_type === "dropoff_school"
+                        ) {
+                          actionLabel = "Drop off";
+                        }
 
-                            const canCallSchool =
-                              isSchoolStop && !!stop.name && !!stop.phone;
+                        // Student name to show after the action
+                        const studentLabel =
+                          stop.student_name || "student";
 
-                            return (
-                              <div
-                                key={stop.id}
-                                className="flex items-start gap-3 rounded-xl bg-slate-900/80 px-3 py-3"
-                              >
-                                {/* Sequence number */}
-                                <span className="mt-1 w-6 text-xs font-semibold text-slate-400">
-                                  {stop.sequence}.
-                                </span>
+                        // Contacts logic – home stops: guardian; school stops: school
+                        const canCallGuardian =
+                          isHomeStop &&
+                          !!stop.primary_guardian_name &&
+                          !!stop.primary_guardian_phone;
 
-                                {/* Main stop content */}
-                                <div className="flex-1 space-y-1.5">
-                                  {/* Planned time – first line, more prominent */}
-                                  {stop.planned_time && (
-                                    <p className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200">
-                                      Planned:{" "}
-                                      <span className="ml-1 text-[11px] font-bold tracking-normal text-emerald-100">
-                                        {stop.planned_time}
+                        const canCallSchool =
+                          isSchoolStop && !!stop.name && !!stop.phone;
+
+                        return (
+                          <div
+                            key={stop.id}
+                            className="flex items-start gap-3 rounded-2xl bg-slate-900/90 px-3 py-3"
+                          >
+                            {/* Sequence number */}
+                            <span className="mt-1 w-7 text-sm font-semibold text-slate-400">
+                              {stop.sequence}.
+                            </span>
+
+                            {/* Main stop content */}
+                            <div className="flex-1 space-y-1.5">
+                              {/* Planned time – first line, more prominent */}
+                              {stop.planned_time && (
+                                <p className="inline-flex items-center rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-200">
+                                  Planned:{" "}
+                                  <span className="ml-2 text-sm font-bold tracking-normal text-emerald-100">
+                                    {stop.planned_time}
+                                  </span>
+                                </p>
+                              )}
+
+                              {/* Action + student name */}
+                              <p className="text-base font-semibold text-slate-50">
+                                {actionLabel} {studentLabel}
+                              </p>
+
+                              {/* Address */}
+                              <p className="text-sm text-slate-200">
+                                {stop.address || "Address not set"}
+                              </p>
+
+                              {/* For school stops, also show the school name clearly */}
+                              {isSchoolStop && stop.name && (
+                                <p className="text-sm text-slate-300">
+                                  School:{" "}
+                                  <span className="font-medium text-slate-100">
+                                    {stop.name}
+                                  </span>
+                                </p>
+                              )}
+
+                              {/* Navigation buttons */}
+                              {stop.address && (
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      // Open this stop in Google Maps
+                                      const dest = encodeURIComponent(
+                                        stop.address as string,
+                                      );
+                                      window.location.href = `https://www.google.com/maps/dir/?api=1&destination=${dest}`;
+                                    }}
+                                    className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/70 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-200 active:scale-[0.97]"
+                                  >
+                                    {/* Simple map pin icon */}
+                                    <svg
+                                      aria-hidden="true"
+                                      className="h-4 w-4"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      xmlns="http://www.w3.org/2000/svg"
+                                    >
+                                      <path
+                                        d="M12 2.75C8.824 2.75 6.25 5.324 6.25 8.5C6.25 12.438 10.06 16.41 11.52 17.84C11.79 18.11 12.21 18.11 12.48 17.84C13.94 16.41 17.75 12.438 17.75 8.5C17.75 5.324 15.176 2.75 12 2.75Z"
+                                        stroke="currentColor"
+                                        strokeWidth="1.6"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      />
+                                      <circle
+                                        cx="12"
+                                        cy="8.5"
+                                        r="2.25"
+                                        stroke="currentColor"
+                                        strokeWidth="1.6"
+                                      />
+                                    </svg>
+                                    <span className="text-sm">Maps</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      // Open this stop in Waze
+                                      const dest = encodeURIComponent(
+                                        stop.address as string,
+                                      );
+                                      // Waze universal link – will open the app if installed, or website otherwise
+                                      window.location.href = `https://waze.com/ul?q=${dest}&navigate=yes`;
+                                    }}
+                                    className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/70 bg-blue-500/10 px-3 py-1.5 text-xs font-semibold text-blue-200 active:scale-[0.97]"
+                                  >
+                                    {/* Simple car/bubble icon */}
+                                    <svg
+                                      aria-hidden="true"
+                                      className="h-4 w-4"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      xmlns="http://www.w3.org/2000/svg"
+                                    >
+                                      <path
+                                        d="M4.5 14.5C4.5 11.462 6.962 9 10 9H14C17.038 9 19.5 11.462 19.5 14.5C19.5 16.985 17.485 19 15 19H14L12 21L10.5 19.75"
+                                        stroke="currentColor"
+                                        strokeWidth="1.6"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      />
+                                      <circle
+                                        cx="9.25"
+                                        cy="14.5"
+                                        r="1.5"
+                                        fill="currentColor"
+                                      />
+                                      <circle
+                                        cx="15"
+                                        cy="14.5"
+                                        r="1.5"
+                                        fill="currentColor"
+                                      />
+                                    </svg>
+                                    <span className="text-sm">Waze</span>
+                                  </button>
+                                </div>
+                              )}
+
+                              {/* Contacts – only show what's appropriate for this stop type */}
+                              {(canCallGuardian || canCallSchool) && (
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                  {canCallGuardian && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        window.location.href = `tel:${stop.primary_guardian_phone}`;
+                                      }}
+                                      className="inline-flex items-center rounded-full border border-emerald-500/70 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-200 active:scale-[0.97]"
+                                    >
+                                      Call guardian:{" "}
+                                      <span className="ml-1">
+                                        {stop.primary_guardian_name}
                                       </span>
-                                    </p>
+                                    </button>
                                   )}
-
-                                  {/* Action + student name */}
-                                  <p className="text-sm font-semibold text-slate-50">
-                                    {actionLabel} {studentLabel}
-                                  </p>
-
-                                  {/* Address */}
-                                  <p className="text-xs text-slate-200">
-                                    {stop.address || "Address not set"}
-                                  </p>
-
-                                  {/* For school stops, also show the school name clearly */}
-                                  {isSchoolStop && stop.name && (
-                                    <p className="text-xs text-slate-300">
-                                      School:{" "}
-                                      <span className="font-medium text-slate-100">
+                                  {canCallSchool && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        window.location.href = `tel:${stop.phone}`;
+                                      }}
+                                      className="inline-flex items-center rounded-full border border-emerald-500/70 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-200 active:scale-[0.97]"
+                                    >
+                                      Call school:{" "}
+                                      <span className="ml-1">
                                         {stop.name}
                                       </span>
-                                    </p>
-                                  )}
-
-                                  {/* Navigation buttons */}
-                                  {stop.address && (
-                                    <div className="mt-1 flex flex-wrap gap-1.5">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          // Open this stop in Google Maps
-                                          const dest = encodeURIComponent(stop.address as string);
-                                          window.location.href = `https://www.google.com/maps/dir/?api=1&destination=${dest}`;
-                                        }}
-                                        className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 active:scale-[0.97]"
-                                      >
-                                        <span className="flex items-center gap-1">
-                                          {/* Simple map pin icon */}
-                                          <svg
-                                            aria-hidden="true"
-                                            className="h-3 w-3"
-                                            viewBox="0 0 24 24"
-                                            fill="none"
-                                            xmlns="http://www.w3.org/2000/svg"
-                                          >
-                                            <path
-                                              d="M12 2.75C8.824 2.75 6.25 5.324 6.25 8.5C6.25 12.438 10.06 16.41 11.52 17.84C11.79 18.11 12.21 18.11 12.48 17.84C13.94 16.41 17.75 12.438 17.75 8.5C17.75 5.324 15.176 2.75 12 2.75Z"
-                                              stroke="currentColor"
-                                              strokeWidth="1.6"
-                                              strokeLinecap="round"
-                                              strokeLinejoin="round"
-                                            />
-                                            <circle
-                                              cx="12"
-                                              cy="8.5"
-                                              r="2.25"
-                                              stroke="currentColor"
-                                              strokeWidth="1.6"
-                                            />
-                                          </svg>
-                                          <span>Maps</span>
-                                        </span>
-                                      </button>
-
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          // Open this stop in Waze
-                                          const dest = encodeURIComponent(stop.address as string);
-                                          // Waze universal link – will open the app if installed, or website otherwise
-                                          window.location.href = `https://waze.com/ul?q=${dest}&navigate=yes`;
-                                        }}
-                                        className="inline-flex items-center rounded-full border border-blue-500/60 bg-blue-500/10 px-2.5 py-1 text-[11px] font-semibold text-blue-200 active:scale-[0.97]"
-                                      >
-                                        <span className="flex items-center gap-1">
-                                          {/* Simple car/bubble icon */}
-                                          <svg
-                                            aria-hidden="true"
-                                            className="h-3 w-3"
-                                            viewBox="0 0 24 24"
-                                            fill="none"
-                                            xmlns="http://www.w3.org/2000/svg"
-                                          >
-                                            <path
-                                              d="M4.5 14.5C4.5 11.462 6.962 9 10 9H14C17.038 9 19.5 11.462 19.5 14.5C19.5 16.985 17.485 19 15 19H14L12 21L10.5 19.75"
-                                              stroke="currentColor"
-                                              strokeWidth="1.6"
-                                              strokeLinecap="round"
-                                              strokeLinejoin="round"
-                                            />
-                                            <circle
-                                              cx="9.25"
-                                              cy="14.5"
-                                              r="1.25"
-                                              fill="currentColor"
-                                            />
-                                            <circle
-                                              cx="15"
-                                              cy="14.5"
-                                              r="1.25"
-                                              fill="currentColor"
-                                            />
-                                          </svg>
-                                          <span>Waze</span>
-                                        </span>
-                                      </button>
-                                    </div>
-                                  )}
-
-                                  {/* Contacts – only show what's appropriate for this stop type */}
-                                  {(canCallGuardian || canCallSchool) && (
-                                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                      {canCallGuardian && (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            window.location.href = `tel:${stop.primary_guardian_phone}`;
-                                          }}
-                                          className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 active:scale-[0.97]"
-                                        >
-                                          Call guardian: {stop.primary_guardian_name}
-                                        </button>
-                                      )}
-                                      {canCallSchool && (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            window.location.href = `tel:${stop.phone}`;
-                                          }}
-                                          className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 active:scale-[0.97]"
-                                        >
-                                          Call school: {stop.name}
-                                        </button>
-                                      )}
-                                    </div>
+                                    </button>
                                   )}
                                 </div>
-                              </div>
-                            );
-                          })}
-                      </div>
-                    )}
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Route complete button */}
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleMarkRouteComplete(route.id)}
+                      disabled={
+                        !!completingRouteId &&
+                        completingRouteId === route.id
+                      }
+                      className={`w-full rounded-xl border px-4 py-2.5 text-sm font-semibold transition active:scale-[0.97] ${
+                        completingRouteId === route.id
+                          ? "cursor-wait border-emerald-500/60 bg-emerald-900/40 text-emerald-100"
+                          : "border-emerald-500/40 bg-slate-900/60 text-emerald-200 hover:bg-emerald-500/10"
+                      }`}
+                    >
+                      {completingRouteId === route.id
+                        ? "Marking route as complete..."
+                        : "Mark this route as complete for today"}
+                    </button>
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      Once marked complete, this route will disappear from
+                      today&apos;s list. You can still see overall route
+                      details in the Admin Portal.
+                    </p>
+                  </div>
                 </div>
               );
             })}
