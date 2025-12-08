@@ -103,7 +103,7 @@ export default function RootLayout({
                     Transafe Transportation
                   </p>
                   <p className="text-[11px] text-slate-400">
-                    7D inspections, routes, timecards & admin tools
+                    7D inspections, routes, timelogs & more
                   </p>
                 </div>
               </div>

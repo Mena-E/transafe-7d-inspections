@@ -52,7 +52,7 @@ export default function HomePage() {
                   Admin Portal
                 </p>
                 <p className="text-sm font-semibold text-slate-50">
-                  Manage inspections, routes, fleet & timecards
+                  Manage inspections, routes, fleet & timelogs
                 </p>
                 <ul className="mt-1 space-y-1 text-xs text-slate-300">
                   <li>• Add / update drivers and vehicles</li>
