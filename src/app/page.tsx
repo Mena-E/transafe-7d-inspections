@@ -7,19 +7,17 @@ export default function HomePage() {
       <section className="card space-y-4">
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-300">
-            Transafe 7D Inspections
+            Transafe 7D Operations
           </p>
-          <h1 className="text-2xl font-semibold text-slate-50 sm:text-3xl">
-            Daily 7D inspections & driver timecards in one place
+          <h1 className="text-3xl font-bold tracking-tight text-slate-50 sm:text-4xl">
+            Transafe Operations Portal
           </h1>
-          <p className="text-sm leading-relaxed text-slate-200/90">
-            Transafe drivers complete{" "}
-            <span className="font-semibold">
-              pre-trip / post-trip inspections
-            </span>{" "}
-            and automatically log their daily and weekly hours. Admins can
-            search, review, export, and print inspection records and timecards.
+          <p className="mt-3 max-w-2xl text-sm text-slate-300 sm:text-base">
+            Manage your 7D student transportation operations in one place – drivers complete
+            pre and post trip inspections, view routes, and log time, while admins manage routes,
+            students, schools, vehicles, and inspections from a single portal.
           </p>
+
         </div>
 
         {/* Primary actions */}
@@ -32,7 +30,7 @@ export default function HomePage() {
                   Driver Portal
                 </p>
                 <p className="text-sm font-semibold text-slate-50">
-                  Start inspections & track hours
+                  Start inspections, auto log time & view routes.
                 </p>
                 <ul className="mt-1 space-y-1 text-xs text-slate-300">
                   <li>• Select your name & vehicle</li>
@@ -54,7 +52,7 @@ export default function HomePage() {
                   Admin Portal
                 </p>
                 <p className="text-sm font-semibold text-slate-50">
-                  Manage inspections, fleet & timecards
+                  Manage inspections, routes, fleet & timecards
                 </p>
                 <ul className="mt-1 space-y-1 text-xs text-slate-300">
                   <li>• Add / update drivers and vehicles</li>
