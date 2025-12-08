@@ -1871,8 +1871,7 @@ const loadTodayRoutes = async (driverId: string) => {
                     </button>
                     <p className="mt-1 text-[11px] text-slate-400">
                       Once marked complete, this route will disappear from
-                      today&apos;s list. You can still see overall route
-                      details in the Admin Portal.
+                      today&apos;s list. 
                     </p>
                   </div>
                 </div>
