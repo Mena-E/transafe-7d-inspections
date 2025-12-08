@@ -5,6 +5,9 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 
+const DRIVER_APP_VERSION = "v0.1.2— 2025-12-07";
+
+
 // ==== TYPES ====
 
 type Driver = {
@@ -1932,6 +1935,11 @@ const loadTodayRoutes = async (driverId: string) => {
           your shifts.
         </p>
       </section>
+      <footer className="mt-8 pt-4 border-t border-slate-800/60 text-center text-[11px] text-slate-500/70">
+        <span className="font-mono tracking-wide uppercase">
+          Build {DRIVER_APP_VERSION}
+        </span>
+      </footer>
     </div>
   );
 }
