@@ -834,7 +834,7 @@ export default function AdminPage() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h1 className="mb-1 text-xl font-semibold">
-              Transafe Admin Dashboard 
+              Transafe Admin Portal
             </h1>
             <p className="text-xs text-slate-200/80">
               Manage{" "}
@@ -1104,7 +1104,7 @@ export default function AdminPage() {
       {activeTab === "routes" && (
         <RoutesTab />
       )}
-      
+
       {/* VEHICLES TAB */}
       {activeTab === "vehicles" && (
         <section className="space-y-4">
@@ -2337,6 +2337,69 @@ function TimecardsAdminSection({ drivers }: { drivers: Driver[] }) {
     setWeekStart(formatYMD(start));
   };
 
+    const handleExportTimecardsCsv = () => {
+    if (!weekDays.length || !summaries.length) {
+      alert("No timecard data to export for this week.");
+      return;
+    }
+
+    // Build header: Driver, License, each day, Weekly total
+    const header = [
+      "Driver",
+      "License",
+      ...weekDays.map((d) => `${d.label} (${d.date})`),
+      "Weekly total",
+    ];
+
+    // Build rows for each driver
+    const rows = summaries.map((s) => {
+      const dayValues = weekDays.map((d) => {
+        const secs = s.dailySeconds[d.date] ?? 0;
+        return formatDuration(secs);
+      });
+
+      return [
+        s.name || "Unknown",
+        s.license || "",
+        ...dayValues,
+        formatDuration(s.weekTotalSeconds),
+      ];
+    });
+
+    // CSV string with proper escaping
+    const csvLines = [
+      header.join(","),
+      ...rows.map((row) =>
+        row
+          .map((field) => {
+            const str = String(field ?? "");
+            if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+              return `"${str.replace(/"/g, '""')}"`;
+            }
+            return str;
+          })
+          .join(","),
+      ),
+    ];
+
+    const csvContent = csvLines.join("\n");
+
+    // Trigger browser download
+    const blob = new Blob([csvContent], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    const today = new Date().toISOString().slice(0, 10);
+    link.href = url;
+    link.setAttribute("download", `transafe_timecards_${today}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-4">
       <section className="card space-y-3">
@@ -2393,11 +2456,23 @@ function TimecardsAdminSection({ drivers }: { drivers: Driver[] }) {
       )}
 
       <section className="card space-y-3">
-        <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">
             Weekly hours by driver
           </h3>
-          {loading && <span className="text-xs text-slate-400">Loading…</span>}
+          <div className="flex items-center gap-2">
+            {loading && (
+              <span className="text-xs text-slate-400">Loading…</span>
+            )}
+            <button
+              type="button"
+              onClick={handleExportTimecardsCsv}
+              className="btn-ghost px-3 py-1 text-[11px] sm:text-xs"
+              disabled={summaries.length === 0}
+            >
+              Export CSV
+            </button>
+          </div>
         </div>
 
         {(!drivers || drivers.length === 0) && !loading ? (
