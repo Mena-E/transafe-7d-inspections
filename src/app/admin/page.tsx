@@ -1189,220 +1189,82 @@ export default function AdminPage() {
                     </thead>
                     <tbody>
                       {filteredVehicles.map((vehicle, idx) => {
-                        const isEditing = editingVehicleId === vehicle.id;
-
+                        
                         return (
-                          <>
-                            <tr
-                              key={vehicle.id}
-                              className={`border-b border-slate-800/60 transition hover:bg-slate-900/80 ${
-                                idx % 2 === 0
-                                  ? "bg-slate-950/70"
-                                  : "bg-slate-900/60"
-                              }`}
-                            >
-                              <td className="px-3 py-2 text-slate-100">
-                                {vehicle.year || vehicle.make || vehicle.model ? (
-                                  <>
-                                    {vehicle.year ?? ""}{" "}
-                                    {vehicle.make ?? ""}{" "}
-                                    {vehicle.model ?? ""}
-                                  </>
-                                ) : (
-                                  <span className="text-slate-500">—</span>
-                                )}
-                              </td>
-                              <td className="px-3 py-2 text-slate-100">
-                                {vehicle.label}
-                              </td>
-                              <td className="px-3 py-2 text-slate-100">
-                                {vehicle.plate || "N/A"}
-                              </td>
-                              <td className="px-3 py-2 text-slate-100">
-                                {vehicle.vin || (
-                                  <span className="text-slate-500">—</span>
-                                )}
-                              </td>
-                              <td className="px-3 py-2 text-slate-100">
-                                {vehicle.is_active ? (
-                                  <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-200">
-                                    Active
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center rounded-full bg-slate-500/20 px-2 py-0.5 text-[11px] font-semibold text-slate-200">
-                                    Inactive
-                                  </span>
-                                )}
-                              </td>
-                              <td className="px-3 py-2 text-right">
-                                <div className="flex flex-wrap items-center justify-end gap-1.5">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      isEditing
-                                        ? cancelEditVehicle()
-                                        : startEditVehicle(vehicle)
-                                    }
-                                    className="btn-ghost px-3 py-1 text-[11px]"
-                                    disabled={loading}
-                                  >
-                                    {isEditing ? "Close" : "View / Edit"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleToggleVehicleActive(vehicle)
-                                    }
-                                    className="btn-ghost px-3 py-1 text-[11px]"
-                                    disabled={loading}
-                                  >
-                                    {vehicle.is_active
-                                      ? "Deactivate"
-                                      : "Activate"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleDeleteVehicle(vehicle)
-                                    }
-                                    className="btn-ghost px-3 py-1 text-[11px] text-red-300 hover:text-red-200"
-                                    disabled={loading}
-                                  >
-                                    Delete
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
+                          <tr
+                            key={vehicle.id}
+                            className={`border-b border-slate-800/60 transition hover:bg-slate-900/80 ${
+                              idx % 2 === 0 ? "bg-slate-950/70" : "bg-slate-900/60"
+                            }`}
+                          >
+                            {/* Year / Make / Model */}
+                            <td className="px-3 py-2 text-slate-100">
+                              {vehicle.year || vehicle.make || vehicle.model ? (
+                                <>
+                                  {vehicle.year ?? ""} {vehicle.make ?? ""} {vehicle.model ?? ""}
+                                </>
+                              ) : (
+                                <span className="text-slate-500">—</span>
+                              )}
+                            </td>
 
-                            {isEditing && (
-                              <tr key={`${vehicle.id}-edit`}>
-                                <td
-                                  colSpan={6}
-                                  className="px-3 pb-3 pt-0 align-top"
+                            {/* Label */}
+                            <td className="px-3 py-2 text-slate-100">{vehicle.label}</td>
+
+                            {/* Plate */}
+                            <td className="px-3 py-2 text-slate-100">
+                              {vehicle.plate || "N/A"}
+                            </td>
+
+                            {/* VIN */}
+                            <td className="px-3 py-2 text-slate-100">
+                              {vehicle.vin || <span className="text-slate-500">—</span>}
+                            </td>
+
+                            {/* Status */}
+                            <td className="px-3 py-2 text-slate-100">
+                              {vehicle.is_active ? (
+                                <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-200">
+                                  Active
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center rounded-full bg-slate-500/20 px-2 py-0.5 text-[11px] font-semibold text-slate-200">
+                                  Inactive
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Actions */}
+                            <td className="px-3 py-2 text-right">
+                              <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                {/* 🔗 NEW: go to vehicle detail page */}
+                                <Link
+                                  href={`/admin/vehicles/${vehicle.id}`}
+                                  className="btn-ghost px-3 py-1 text-[11px]"
                                 >
-                                  <div className="mt-2 space-y-2 rounded-xl bg-slate-950/80 p-3">
-                                    <p className="text-[11px] font-semibold text-slate-200">
-                                      Edit vehicle profile
-                                    </p>
-                                    <div className="grid gap-2 md:grid-cols-2">
-                                      <div className="space-y-1">
-                                        <label className="text-[11px] text-slate-300">
-                                          Label
-                                        </label>
-                                        <input
-                                          type="text"
-                                          value={editVehicleLabel}
-                                          onChange={(e) =>
-                                            setEditVehicleLabel(
-                                              e.target.value,
-                                            )
-                                          }
-                                          className="w-full rounded-xl border border-white/15 bg-slate-900 px-2 py-1.5 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-                                        />
-                                      </div>
-                                      <div className="space-y-1">
-                                        <label className="text-[11px] text-slate-300">
-                                          Year
-                                        </label>
-                                        <input
-                                          type="number"
-                                          value={editVehicleYear}
-                                          onChange={(e) =>
-                                            setEditVehicleYear(
-                                              e.target.value,
-                                            )
-                                          }
-                                          className="w-full rounded-xl border border-white/15 bg-slate-900 px-2 py-1.5 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-                                        />
-                                      </div>
-                                      <div className="space-y-1">
-                                        <label className="text-[11px] text-slate-300">
-                                          Make
-                                        </label>
-                                        <input
-                                          type="text"
-                                          value={editVehicleMake}
-                                          onChange={(e) =>
-                                            setEditVehicleMake(
-                                              e.target.value,
-                                            )
-                                          }
-                                          className="w-full rounded-xl border border-white/15 bg-slate-900 px-2 py-1.5 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-                                        />
-                                      </div>
-                                      <div className="space-y-1">
-                                        <label className="text-[11px] text-slate-300">
-                                          Model
-                                        </label>
-                                        <input
-                                          type="text"
-                                          value={editVehicleModel}
-                                          onChange={(e) =>
-                                            setEditVehicleModel(
-                                              e.target.value,
-                                            )
-                                          }
-                                          className="w-full rounded-xl border border-white/15 bg-slate-900 px-2 py-1.5 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-                                        />
-                                      </div>
-                                      <div className="space-y-1">
-                                        <label className="text-[11px] text-slate-300">
-                                          Plate
-                                        </label>
-                                        <input
-                                          type="text"
-                                          value={editVehiclePlate}
-                                          onChange={(e) =>
-                                            setEditVehiclePlate(
-                                              e.target.value,
-                                            )
-                                          }
-                                          className="w-full rounded-xl border border-white/15 bg-slate-900 px-2 py-1.5 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-                                        />
-                                      </div>
-                                      <div className="space-y-1">
-                                        <label className="text-[11px] text-slate-300">
-                                          VIN
-                                        </label>
-                                        <input
-                                          type="text"
-                                          value={editVehicleVin}
-                                          onChange={(e) =>
-                                            setEditVehicleVin(
-                                              e.target.value,
-                                            )
-                                          }
-                                          className="w-full rounded-xl border border-white/15 bg-slate-900 px-2 py-1.5 text-xs text-slate-100 outline-none ring-emerald-500/60 focus:border-emerald-500 focus:ring-2"
-                                        />
-                                      </div>
-                                    </div>
+                                  View / Edit
+                                </Link>
 
-                                    <div className="flex flex-wrap gap-2 pt-1">
-                                      <button
-                                        type="button"
-                                        onClick={saveEditVehicle}
-                                        className="btn-primary px-4 py-1.5 text-[11px]"
-                                        disabled={
-                                          loading ||
-                                          !editVehicleLabel.trim()
-                                        }
-                                      >
-                                        Save changes
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={cancelEditVehicle}
-                                        className="btn-ghost px-4 py-1.5 text-[11px]"
-                                        disabled={loading}
-                                      >
-                                        Cancel
-                                      </button>
-                                    </div>
-                                  </div>
-                                </td>
-                              </tr>
-                            )}
-                          </>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleVehicleActive(vehicle)}
+                                  className="btn-ghost px-3 py-1 text-[11px]"
+                                  disabled={loading}
+                                >
+                                  {vehicle.is_active ? "Deactivate" : "Activate"}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteVehicle(vehicle)}
+                                  className="btn-ghost px-3 py-1 text-[11px] text-red-300 hover:text-red-200"
+                                  disabled={loading}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
                         );
                       })}
                     </tbody>
