@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import RoutesTab from "./_components/RoutesTab";
+import AdminDashboardTab from "./_components/AdminDashboardTab";
+
 
 // =====================
 //  CONSTANTS & HELPERS
@@ -68,6 +70,7 @@ type DriverTimeSummary = {
 
 // === ADMIN TAB TYPE (ANCHOR) ===
 type AdminTab =
+  | "dashboard"
   | "inspections"
   | "vehicles"
   | "drivers"
@@ -77,6 +80,7 @@ type AdminTab =
   | "timecards";
 
 const ADMIN_TABS: AdminTab[] = [
+  "dashboard",
   "inspections",
   "vehicles",
   "drivers",
@@ -85,6 +89,7 @@ const ADMIN_TABS: AdminTab[] = [
   "routes",
   "timecards",
 ];
+
 
 function isValidAdminTab(value: any): value is AdminTab {
   return typeof value === "string" && ADMIN_TABS.includes(value as AdminTab);
@@ -150,9 +155,9 @@ export default function AdminPage() {
 
   const [accessCodeInput, setAccessCodeInput] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [activeTab, setActiveTab] = useState<AdminTab>("dashboard");
 
-  const [activeTab, setActiveTab] = useState<AdminTab>("inspections");
-
+  
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [inspections, setInspections] = useState<InspectionSummary[]>([]);
@@ -213,12 +218,13 @@ export default function AdminPage() {
       return;
     }
 
-    // 3) Fallback: inspections
-    setActiveTab("inspections");
-    window.localStorage.setItem(ADMIN_TAB_STORAGE_KEY, "inspections");
+      // 3) Fallback: dashboard
+    setActiveTab("dashboard");
+    window.localStorage.setItem(ADMIN_TAB_STORAGE_KEY, "dashboard");
     if (!window.location.hash) {
-      window.location.hash = "#inspections";
+      window.location.hash = "#dashboard";
     }
+
   }, []);
 
   const setTabAndRemember = (tab: AdminTab) => {
@@ -838,33 +844,38 @@ export default function AdminPage() {
         </section>
       )}
 
-           {/* Tab navigation */}
-      <section className="card flex flex-wrap gap-2">
-        {(
-          [
-            { id: "inspections", label: "Inspections" },
-            { id: "vehicles", label: "Vehicles" },
-            { id: "drivers", label: "Drivers" },
-            { id: "students", label: "Students" },
-            { id: "schools", label: "Schools" },
-            { id: "routes", label: "Routes" },
-            { id: "timecards", label: "Timecards" },
-          ] as { id: AdminTab; label: string }[]
-        ).map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => setTabAndRemember(tab.id)}
-            className={`rounded-2xl px-4 py-2 text-xs font-semibold transition active:scale-[0.97] ${
-              activeTab === tab.id
-                ? "bg-emerald-500 text-slate-950 shadow"
-                : "bg-slate-900 text-slate-100 ring-1 ring-white/10 hover:bg-slate-800"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </section>
+
+         {/* Tab navigation */}
+        <section className="card flex flex-wrap gap-2">
+          {(
+            [
+              { id: "dashboard", label: "Dashboard" },
+              { id: "inspections", label: "Inspections" },
+              { id: "vehicles", label: "Vehicles" },
+              { id: "drivers", label: "Drivers" },
+              { id: "students", label: "Students" },
+              { id: "schools", label: "Schools" },
+              { id: "routes", label: "Routes" },
+              { id: "timecards", label: "Timecards" },
+            ] as { id: AdminTab; label: string }[]
+          ).map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setTabAndRemember(tab.id)}
+              className={`rounded-2xl px-4 py-2 text-xs font-semibold transition active:scale-[0.97] ${
+                activeTab === tab.id
+                  ? "bg-emerald-500 text-slate-950 shadow"
+                  : "bg-slate-900 text-slate-100 ring-1 ring-white/10 hover:bg-slate-800"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </section>
+
+      {/*DASHBOARD TAB */}
+      {activeTab === "dashboard" && <AdminDashboardTab />}
 
       {/* DRIVERS TAB */}
       {activeTab === "drivers" && (
