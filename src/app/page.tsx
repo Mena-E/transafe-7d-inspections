@@ -57,7 +57,7 @@ export default function HomePage() {
                 <ul className="mt-1 space-y-1 text-xs text-slate-300">
                   <li>• Add / update drivers and vehicles</li>
                   <li>• View 90-day inspection history</li>
-                  <li>• See weekly driver timecards & export data</li>
+                  <li>• Set daily routes and view weekly driver timecards & export data</li>
                 </ul>
               </div>
               <p className="mt-3 text-xs font-semibold text-slate-200 group-hover:text-emerald-200">
