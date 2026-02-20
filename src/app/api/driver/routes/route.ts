@@ -75,9 +75,20 @@ export async function GET(req: NextRequest) {
     );
 
     // 6. Filter out completed and inactive routes
-    const activeRoutes = (routesRes.data || []).filter(
-      (r) => r.is_active !== false && !completedRouteIds.has(r.id)
+    const allAssignedRoutes = (routesRes.data || []).filter(
+      (r) => r.is_active !== false
     );
+    const activeRoutes = allAssignedRoutes.filter(
+      (r) => !completedRouteIds.has(r.id)
+    );
+
+    // Total assigned route counts (before completion filtering) for shift gating
+    const totalRouteCounts = {
+      AM: allAssignedRoutes.filter(
+        (r) => r.direction === "AM" || r.direction === "MIDDAY"
+      ).length,
+      PM: allAssignedRoutes.filter((r) => r.direction === "PM").length,
+    };
 
     // 7. For each stop, load student and school data, build effective addresses
     const stops = stopsRes.data || [];
@@ -145,9 +156,10 @@ export async function GET(req: NextRequest) {
     for (const routeId of activeRouteIds) {
       const routeStops = stops.filter((s) => s.route_id === routeId);
 
-      // 8. Group stops by household_id
+      // 8. Group stops by household (home stops) or school (school stops)
       const processedStops: RouteStop[] = [];
       const householdGroups = new Map<string, typeof routeStops>();
+      const schoolGroups = new Map<string, typeof routeStops>();
 
       for (const stop of routeStops) {
         const student = stop.student_id
@@ -155,9 +167,25 @@ export async function GET(req: NextRequest) {
           : null;
         const school = stop.school_id ? schoolsMap.get(stop.school_id) : null;
         const householdId = student?.household_id || stop.household_id || null;
+        const isSchoolStop =
+          stop.stop_type === "dropoff_school" ||
+          stop.stop_type === "pickup_school";
 
-        // For school stops, don't group
-        if (stop.stop_type === "school" || !householdId) {
+        if (isSchoolStop && stop.school_id) {
+          // Group school stops by school_id + stop_type
+          const schoolKey = `${stop.school_id}:${stop.stop_type}`;
+          if (!schoolGroups.has(schoolKey)) {
+            schoolGroups.set(schoolKey, []);
+          }
+          schoolGroups.get(schoolKey)!.push(stop);
+        } else if (householdId) {
+          // Group home stops by household
+          if (!householdGroups.has(householdId)) {
+            householdGroups.set(householdId, []);
+          }
+          householdGroups.get(householdId)!.push(stop);
+        } else {
+          // Ungrouped stop
           const effectiveAddress =
             stop.address || school?.address || student?.pickup_address || "";
 
@@ -168,18 +196,14 @@ export async function GET(req: NextRequest) {
             address: effectiveAddress,
             planned_time: stop.planned_time || null,
             stop_type: stop.stop_type || "student",
-            student_name: student?.full_name || stop.student_name || null,
+            student_name: student?.full_name || null,
             student_id: stop.student_id || null,
             primary_guardian_name:
-              student?.primary_guardian_name ||
-              stop.primary_guardian_name ||
-              null,
+              student?.primary_guardian_name || null,
             primary_guardian_phone:
-              student?.primary_guardian_phone ||
-              stop.primary_guardian_phone ||
-              null,
-            name: school?.name || stop.name || null,
-            phone: school?.phone || stop.phone || null,
+              student?.primary_guardian_phone || null,
+            name: school?.name || null,
+            phone: school?.phone || null,
             household_id: householdId,
             household_students: student?.full_name
               ? [student.full_name]
@@ -188,16 +212,49 @@ export async function GET(req: NextRequest) {
               ? [stop.student_id]
               : [],
           });
-        } else {
-          // Group by household
-          if (!householdGroups.has(householdId)) {
-            householdGroups.set(householdId, []);
-          }
-          householdGroups.get(householdId)!.push(stop);
         }
       }
 
-      // Process household groups
+      // Process school groups — merge students going to the same school
+      for (const [, groupStops] of schoolGroups) {
+        const firstStop = groupStops[0];
+        const school = firstStop.school_id
+          ? schoolsMap.get(firstStop.school_id)
+          : null;
+
+        const studentNames: string[] = [];
+        const studentIds: string[] = [];
+        const seenStudentIds = new Set<string>();
+        for (const gs of groupStops) {
+          if (gs.student_id && seenStudentIds.has(gs.student_id)) continue;
+          if (gs.student_id) seenStudentIds.add(gs.student_id);
+          const stu = gs.student_id ? studentsMap.get(gs.student_id) : null;
+          if (stu?.full_name) {
+            studentNames.push(stu.full_name);
+            if (gs.student_id) studentIds.push(gs.student_id);
+          }
+        }
+
+        processedStops.push({
+          id: firstStop.id,
+          route_id: firstStop.route_id,
+          sequence: firstStop.sequence,
+          address: school?.address || firstStop.address || "",
+          planned_time: firstStop.planned_time || null,
+          stop_type: firstStop.stop_type || "dropoff_school",
+          student_name: studentNames.join(", "),
+          student_id: firstStop.student_id || null,
+          primary_guardian_name: null,
+          primary_guardian_phone: null,
+          name: school?.name || null,
+          phone: school?.phone || null,
+          household_id: null,
+          household_students: studentNames,
+          household_student_ids: studentIds,
+        });
+      }
+
+      // Process household groups — merge students in the same household
       for (const [householdId, groupStops] of householdGroups) {
         const firstStop = groupStops[0];
         const firstStudent = firstStop.student_id
@@ -213,9 +270,6 @@ export async function GET(req: NextRequest) {
           const stu = gs.student_id ? studentsMap.get(gs.student_id) : null;
           if (stu?.full_name) {
             studentNames.push(stu.full_name);
-            if (gs.student_id) studentIds.push(gs.student_id);
-          } else if (gs.student_name) {
-            studentNames.push(gs.student_name);
             if (gs.student_id) studentIds.push(gs.student_id);
           }
         }
@@ -234,11 +288,9 @@ export async function GET(req: NextRequest) {
           student_id: firstStop.student_id || null,
           primary_guardian_name:
             firstStudent?.primary_guardian_name ||
-            firstStop.primary_guardian_name ||
             null,
           primary_guardian_phone:
             firstStudent?.primary_guardian_phone ||
-            firstStop.primary_guardian_phone ||
             null,
           name: null,
           phone: null,
@@ -278,6 +330,7 @@ export async function GET(req: NextRequest) {
       routes: activeRoutes,
       stopsMap,
       attendance,
+      totalRouteCounts,
     });
   } catch (err: any) {
     console.error("Driver routes error:", err);
