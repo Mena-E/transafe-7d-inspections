@@ -37,10 +37,6 @@ export default function RouteCard({
     let confirmed = 0;
 
     for (const stop of stops) {
-      const isHomeStop =
-        stop.stop_type === "pickup_home" || stop.stop_type === "dropoff_home";
-      if (!isHomeStop) continue;
-
       const studentNames =
         stop.household_students.length > 0
           ? stop.household_students
@@ -48,10 +44,16 @@ export default function RouteCard({
             ? [stop.student_name]
             : [];
 
+      if (studentNames.length === 0) continue;
+
       for (let idx = 0; idx < studentNames.length; idx++) {
-        const studentId = stop.student_id || `${stop.id}-${idx}`;
+        const studentId =
+          stop.household_student_ids?.[idx] ||
+          stop.student_id ||
+          `${stop.id}-${idx}`;
         total++;
-        if (attendanceMap[studentId]) {
+        const compositeKey = `${studentId}:${stop.id}`;
+        if (attendanceMap[compositeKey] || attendanceMap[studentId]) {
           confirmed++;
         }
       }

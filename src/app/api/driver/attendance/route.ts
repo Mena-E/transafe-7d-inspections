@@ -24,13 +24,20 @@ export async function POST(req: NextRequest) {
 
     const today = new Date().toISOString().slice(0, 10);
 
-    // Delete any existing attendance record for this student/route/date first
-    await supabaseAdmin
+    // Delete existing record for this student at this specific stop only
+    // This preserves pickup records when recording dropoffs (and vice versa)
+    let deleteQuery = supabaseAdmin
       .from("attendance_records")
       .delete()
       .eq("student_id", student_id)
       .eq("route_id", route_id)
       .eq("record_date", today);
+
+    if (route_stop_id) {
+      deleteQuery = deleteQuery.eq("route_stop_id", route_stop_id);
+    }
+
+    await deleteQuery;
 
     // Insert new record
     const { data, error } = await supabaseAdmin

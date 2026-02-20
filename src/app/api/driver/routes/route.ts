@@ -16,6 +16,7 @@ interface RouteStop {
   phone: string | null;
   household_id: string | null;
   household_students: string[];
+  household_student_ids: string[];
 }
 
 export async function GET(req: NextRequest) {
@@ -94,7 +95,7 @@ export async function GET(req: NextRequest) {
         ? supabaseAdmin
             .from("students")
             .select(
-              "id, full_name, address, household_id, primary_guardian_name, primary_guardian_phone, school_id"
+              "id, full_name, pickup_address, household_id, primary_guardian_name, primary_guardian_phone, school_id"
             )
             .in("id", studentIds)
         : Promise.resolve({ data: [], error: null }),
@@ -158,7 +159,7 @@ export async function GET(req: NextRequest) {
         // For school stops, don't group
         if (stop.stop_type === "school" || !householdId) {
           const effectiveAddress =
-            stop.address || school?.address || student?.address || "";
+            stop.address || school?.address || student?.pickup_address || "";
 
           processedStops.push({
             id: stop.id,
@@ -183,6 +184,9 @@ export async function GET(req: NextRequest) {
             household_students: student?.full_name
               ? [student.full_name]
               : [],
+            household_student_ids: stop.student_id
+              ? [stop.student_id]
+              : [],
           });
         } else {
           // Group by household
@@ -201,17 +205,23 @@ export async function GET(req: NextRequest) {
           : null;
 
         const studentNames: string[] = [];
+        const studentIds: string[] = [];
+        const seenStudentIds = new Set<string>();
         for (const gs of groupStops) {
+          if (gs.student_id && seenStudentIds.has(gs.student_id)) continue;
+          if (gs.student_id) seenStudentIds.add(gs.student_id);
           const stu = gs.student_id ? studentsMap.get(gs.student_id) : null;
           if (stu?.full_name) {
             studentNames.push(stu.full_name);
+            if (gs.student_id) studentIds.push(gs.student_id);
           } else if (gs.student_name) {
             studentNames.push(gs.student_name);
+            if (gs.student_id) studentIds.push(gs.student_id);
           }
         }
 
         const effectiveAddress =
-          firstStop.address || firstStudent?.address || "";
+          firstStop.address || firstStudent?.pickup_address || "";
 
         processedStops.push({
           id: firstStop.id,
@@ -234,6 +244,7 @@ export async function GET(req: NextRequest) {
           phone: null,
           household_id: householdId,
           household_students: studentNames,
+          household_student_ids: studentIds,
         });
       }
 
@@ -251,9 +262,14 @@ export async function GET(req: NextRequest) {
 
     if (attendErr) throw attendErr;
 
-    // Build attendance map: { [student_id]: status }
+    // Build attendance map keyed by "studentId:stopId" so pickup and dropoff
+    // records for the same student are tracked independently
     const attendance: Record<string, string> = {};
     for (const rec of attendanceData || []) {
+      if (rec.route_stop_id) {
+        attendance[`${rec.student_id}:${rec.route_stop_id}`] = rec.status;
+      }
+      // Also store by student_id alone as fallback
       attendance[rec.student_id] = rec.status;
     }
 

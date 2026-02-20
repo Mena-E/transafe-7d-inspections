@@ -24,9 +24,10 @@ export type RouteStopForDriver = {
   phone: string | null; // school phone
   household_id: string | null;
   household_students: string[]; // grouped student names for household stops
+  household_student_ids: string[]; // matching student IDs for household stops
 };
 
-export type AttendanceStatus = "picked_up" | "dropped_off" | "absent" | "no_show";
+export type AttendanceStatus = "picked_up" | "dropped_off" | "absent" | "no_show" | "cancelled";
 
 type AttendanceRecord = {
   student_id: string;
@@ -155,8 +156,9 @@ export default function StopCard({
         return;
       }
 
-      setAttendanceMap((prev) => ({ ...prev, [studentId]: status }));
-      onAttendanceChange?.(studentId, status);
+      const compositeKey = `${studentId}:${stop.id}`;
+      setAttendanceMap((prev) => ({ ...prev, [compositeKey]: status, [studentId]: status }));
+      onAttendanceChange?.(compositeKey, status);
     } catch (err) {
       console.error("Failed to record attendance:", err);
     } finally {
@@ -164,8 +166,8 @@ export default function StopCard({
     }
   };
 
-  // For school stops, we don't show individual attendance buttons
-  const showAttendance = isHomeStop && studentNames.length > 0;
+  // Show attendance buttons on any stop that has students
+  const showAttendance = studentNames.length > 0;
 
   return (
     <div className="flex items-start gap-3 rounded-2xl bg-slate-900/90 px-3 py-3">
@@ -300,23 +302,27 @@ export default function StopCard({
               Attendance
             </p>
             {studentNames.map((studentName, idx) => {
-              // For household stops, we need student IDs from the parent
-              // The stop object includes student_id for single-student stops
-              // For household stops, we pass student IDs via a data attribute
-              const studentId = stop.student_id || `${stop.id}-${idx}`;
-              const currentStatus = attendanceMap[studentId];
+              const studentId =
+                stop.household_student_ids?.[idx] ||
+                stop.student_id ||
+                `${stop.id}-${idx}`;
+              const currentStatus =
+                attendanceMap[`${studentId}:${stop.id}`] ??
+                attendanceMap[studentId];
               const isSubmitting = submitting?.startsWith(studentId);
 
-              const pickupStatuses: { status: AttendanceStatus; label: string; color: string; activeColor: string }[] = isPickup
+              const statusOptions: { status: AttendanceStatus; label: string; color: string; activeColor: string }[] = isPickup
                 ? [
                     { status: "picked_up", label: "Picked Up", color: "border-emerald-500/40 bg-slate-900/70 text-emerald-200 hover:bg-emerald-500/10", activeColor: "border-emerald-500 bg-emerald-500 text-slate-950 shadow-lg" },
                     { status: "absent", label: "Absent", color: "border-amber-500/40 bg-slate-900/70 text-amber-200 hover:bg-amber-500/10", activeColor: "border-amber-500 bg-amber-500 text-slate-950 shadow-lg" },
                     { status: "no_show", label: "No Show", color: "border-red-500/40 bg-slate-900/70 text-red-200 hover:bg-red-500/10", activeColor: "border-red-500 bg-red-500 text-slate-950 shadow-lg" },
+                    { status: "cancelled", label: "Cancelled", color: "border-slate-500/40 bg-slate-900/70 text-slate-300 hover:bg-slate-500/10", activeColor: "border-slate-400 bg-slate-500 text-slate-950 shadow-lg" },
                   ]
                 : [
                     { status: "dropped_off", label: "Dropped Off", color: "border-blue-500/40 bg-slate-900/70 text-blue-200 hover:bg-blue-500/10", activeColor: "border-blue-500 bg-blue-500 text-slate-950 shadow-lg" },
                     { status: "absent", label: "Absent", color: "border-amber-500/40 bg-slate-900/70 text-amber-200 hover:bg-amber-500/10", activeColor: "border-amber-500 bg-amber-500 text-slate-950 shadow-lg" },
                     { status: "no_show", label: "No Show", color: "border-red-500/40 bg-slate-900/70 text-red-200 hover:bg-red-500/10", activeColor: "border-red-500 bg-red-500 text-slate-950 shadow-lg" },
+                    { status: "cancelled", label: "Cancelled", color: "border-slate-500/40 bg-slate-900/70 text-slate-300 hover:bg-slate-500/10", activeColor: "border-slate-400 bg-slate-500 text-slate-950 shadow-lg" },
                   ];
 
               return (
@@ -325,7 +331,7 @@ export default function StopCard({
                     {studentName}
                   </p>
                   <div className="flex gap-1.5">
-                    {pickupStatuses.map((s) => (
+                    {statusOptions.map((s) => (
                       <button
                         key={s.status}
                         type="button"
