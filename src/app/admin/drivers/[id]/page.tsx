@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabaseClient";
 
 type Driver = {
   id: string;
@@ -68,13 +67,10 @@ export default function AdminDriverDetailPage() {
       setError(null);
 
       try {
-        const { data, error: drvErr } = await supabase
-          .from("drivers")
-          .select("*")
-          .eq("id", id)
-          .maybeSingle();
-
-        if (drvErr) throw drvErr;
+        const res = await fetch(`/api/admin/drivers?id=${id}`);
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Failed to load driver.");
+        const data = json.driver;
         if (!data) {
           setError("Driver not found.");
           setDriver(null);
@@ -123,16 +119,15 @@ export default function AdminDriverDetailPage() {
         is_active: isActive,
       };
 
-      const { data, error: updateErr } = await supabase
-        .from("drivers")
-        .update(payload)
-        .eq("id", id)
-        .select()
-        .single();
+      const res = await fetch("/api/admin/drivers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...payload }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to update driver.");
 
-      if (updateErr) throw updateErr;
-
-      setDriver(data as Driver);
+      setDriver(json.driver as Driver);
       setMessage("Driver profile updated.");
     } catch (err: any) {
       console.error(err);
@@ -165,16 +160,15 @@ export default function AdminDriverDetailPage() {
     setMessage(null);
 
     try {
-      const { data, error: updateErr } = await supabase
-        .from("drivers")
-        .update({ pin: trimmed })
-        .eq("id", id)
-        .select()
-        .single();
+      const res = await fetch("/api/admin/drivers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, pin: trimmed }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to update PIN.");
 
-      if (updateErr) throw updateErr;
-
-      setDriver(data as Driver);
+      setDriver(json.driver as Driver);
       setMessage("PIN updated.");
     } catch (err: any) {
       console.error(err);
@@ -198,12 +192,11 @@ export default function AdminDriverDetailPage() {
     setMessage(null);
 
     try {
-      const { error: deleteErr } = await supabase
-        .from("drivers")
-        .delete()
-        .eq("id", id);
-
-      if (deleteErr) throw deleteErr;
+      const res = await fetch(`/api/admin/drivers?id=${id}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to delete driver.");
 
       router.push("/admin#drivers");
     } catch (err: any) {

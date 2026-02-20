@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
 
 type School = {
   id: string;
@@ -128,13 +127,10 @@ export default function AdminStudentDetailPage({ params }: PageProps) {
     const loadSchools = async () => {
       setLoadingSchools(true);
       try {
-        const { data, error } = await supabase
-          .from("schools")
-          .select("id, name")
-          .order("name", { ascending: true });
-
-        if (error) throw error;
-        setSchools((data as School[]) || []);
+        const res = await fetch("/api/admin/schools");
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Failed to load schools.");
+        setSchools((json.schools as School[]) || []);
       } catch (err: any) {
         console.error(err);
         setError(err.message ?? "Failed to load schools.");
@@ -155,30 +151,10 @@ export default function AdminStudentDetailPage({ params }: PageProps) {
       setError(null);
 
       try {
-        const { data, error } = await supabase
-        .from("students")
-        .select(
-            `
-            id,
-            full_name,
-            student_id,
-            pickup_address,
-            pickup_city,
-            pickup_state,
-            pickup_zip,
-            school_id,
-            is_active,
-            created_at,
-            primary_guardian_name,
-            primary_guardian_phone,
-            primary_guardian_relationship
-            `,
-        )
-        .eq("id", studentIdPk)
-        .maybeSingle();
-
-
-        if (error) throw error;
+        const res = await fetch(`/api/admin/students?id=${studentIdPk}`);
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Failed to load student.");
+        const data = json.student;
         if (!data) {
           setError("Student not found.");
           return;
@@ -214,52 +190,10 @@ export default function AdminStudentDetailPage({ params }: PageProps) {
     const loadGuardians = async () => {
       setLoadingGuardians(true);
       try {
-        const { data: sgRows, error: sgErr } = await supabase
-          .from("student_guardians")
-          .select("id, guardian_id, relationship")
-          .eq("student_id", studentIdPk);
-
-        if (sgErr) throw sgErr;
-
-        const joinRows = (sgRows || []) as {
-          id: string;
-          guardian_id: string;
-          relationship: string | null;
-        }[];
-
-        if (joinRows.length === 0) {
-          setGuardians([]);
-          return;
-        }
-
-        const guardianIds = joinRows.map((row) => row.guardian_id);
-
-        const { data: gRows, error: gErr } = await supabase
-          .from("guardians")
-          .select("id, full_name, phone, email, preferred_contact_method")
-          .in("id", guardianIds);
-
-        if (gErr) throw gErr;
-
-        const map = new Map<string, any>();
-        (gRows || []).forEach((g: any) => {
-          map.set(g.id, g);
-        });
-
-        const combined: GuardianWithLink[] = joinRows.map((row) => {
-          const g = map.get(row.guardian_id);
-          return {
-            linkId: row.id,
-            id: row.guardian_id,
-            full_name: g?.full_name ?? "Unknown guardian",
-            phone: g?.phone ?? null,
-            email: g?.email ?? null,
-            preferred_contact_method: g?.preferred_contact_method ?? null,
-            relationship: row.relationship ?? null,
-          };
-        });
-
-        setGuardians(combined);
+        const res = await fetch(`/api/admin/guardians?student_id=${studentIdPk}`);
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Failed to load guardians.");
+        setGuardians((json.guardians as GuardianWithLink[]) || []);
       } catch (err: any) {
         console.error(err);
         setError(err.message ?? "Failed to load guardians.");
@@ -309,12 +243,13 @@ export default function AdminStudentDetailPage({ params }: PageProps) {
         };
 
 
-      const { error } = await supabase
-        .from("students")
-        .update(payload)
-        .eq("id", studentIdPk);
-
-      if (error) throw error;
+      const res = await fetch("/api/admin/students", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: studentIdPk, ...payload }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to update student.");
 
        // ✅ redirect to Students tab
       router.push("/admin#students");
@@ -343,44 +278,34 @@ export default function AdminStudentDetailPage({ params }: PageProps) {
     setError(null);
 
     try {
-      // 1) Create guardian
-      const { data: newGuardian, error: gErr } = await supabase
-        .from("guardians")
-        .insert({
+      const res = await fetch("/api/admin/guardians", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          student_id: studentIdPk,
           full_name: guardianName.trim(),
           phone: guardianPhone.trim(),
           email: guardianEmail.trim() || null,
           preferred_contact_method: guardianPreferredContact,
-        })
-        .select()
-        .single();
-
-      if (gErr) throw gErr;
-
-      // 2) Link guardian to this student
-      const { data: linkRow, error: linkErr } = await supabase
-        .from("student_guardians")
-        .insert({
-          student_id: studentIdPk,
-          guardian_id: newGuardian.id,
           relationship: guardianRelationship.trim() || null,
-        })
-        .select()
-        .single();
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to add guardian.");
 
-      if (linkErr) throw linkErr;
+      const g = json.guardian;
 
-      // 3) Update local state
+      // Update local state
       setGuardians((prev) => [
         ...prev,
         {
-          linkId: (linkRow as any).id,
-          id: newGuardian.id,
-          full_name: newGuardian.full_name,
-          phone: newGuardian.phone,
-          email: newGuardian.email,
-          preferred_contact_method: newGuardian.preferred_contact_method,
-          relationship: (linkRow as any).relationship,
+          linkId: g.linkId,
+          id: g.id,
+          full_name: g.full_name,
+          phone: g.phone,
+          email: g.email,
+          preferred_contact_method: g.preferred_contact_method,
+          relationship: g.relationship,
         },
       ]);
 
@@ -409,12 +334,11 @@ export default function AdminStudentDetailPage({ params }: PageProps) {
     setError(null);
 
     try {
-      const { error: delErr } = await supabase
-        .from("student_guardians")
-        .delete()
-        .eq("id", linkId);
-
-      if (delErr) throw delErr;
+      const res = await fetch(`/api/admin/guardians?link_id=${linkId}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to remove guardian.");
 
       setGuardians((prev) => prev.filter((g) => g.linkId !== linkId));
     } catch (err: any) {

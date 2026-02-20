@@ -3,7 +3,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabaseClient";
 
 type Driver = {
   id: string;
@@ -64,31 +63,20 @@ export default function AdminLiveClockPage() {
       setError(null);
 
       try {
-        const todayStr = getTodayDateString();
+        const res = await fetch("/api/admin/timecards?mode=live");
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Failed to load live clock.");
 
-        // Load drivers and open time entries for today in parallel
-        const [{ data: driversData, error: drvErr }, { data: openData, error: openErr }] =
-          await Promise.all([
-            supabase
-              .from("drivers")
-              .select("id, full_name, license_number, is_active"),
-            supabase
-              .from("driver_time_entries")
-              .select("id, driver_id, work_date, start_time, end_time")
-              .eq("work_date", todayStr)
-              .is("end_time", null),
-          ]);
-
-        if (drvErr) throw drvErr;
-        if (openErr) throw openErr;
+        const driversData = json.drivers as Driver[] | null;
+        const openData = json.entries as any[] | null;
 
         const driversById: Record<string, Driver> = {};
-        (driversData as Driver[] | null)?.forEach((d) => {
+        driversData?.forEach((d) => {
           driversById[d.id] = d;
         });
 
         const mapped: LiveClockRow[] =
-          (openData as any[] | null)?.map((entry) => {
+          openData?.map((entry) => {
             const driver = driversById[entry.driver_id];
             return {
               entryId: entry.id,

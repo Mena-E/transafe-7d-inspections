@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
 
 type DashboardCounts = {
   drivers: number;
@@ -82,77 +81,13 @@ export default function AdminDashboardTab() {
       setError(null);
 
       try {
-        // Load counts for key tables
-        const [
-          driversRes,
-          vehiclesRes,
-          studentsRes,
-          schoolsRes,
-          routesRes,
-          inspectionsRes,
-          recentInspRes,
-        ] = await Promise.all([
-          supabase.from("drivers").select("*", { count: "exact" }),
-          supabase.from("vehicles").select("*", { count: "exact" }),
-          supabase.from("students").select("*", { count: "exact" }),
-          supabase.from("schools").select("*", { count: "exact" }),
-          supabase.from("routes").select("*", { count: "exact" }),
-          supabase.from("inspections").select("*", { count: "exact" }),
-          supabase
-            .from("inspections")
-            .select("*") // SAFE: no hard-coded column names
-            .order("id", { ascending: false })
-            .limit(5),
-        ]);
+        const res = await fetch("/api/admin/dashboard");
+        if (!res.ok) throw new Error("Failed to load dashboard data");
+        const body = await res.json();
 
-        const firstError =
-          driversRes.error ||
-          vehiclesRes.error ||
-          studentsRes.error ||
-          schoolsRes.error ||
-          routesRes.error ||
-          inspectionsRes.error ||
-          recentInspRes.error;
-
-        if (firstError) {
-          throw firstError;
-        }
-
-        setCounts({
-          drivers: driversRes.count ?? 0,
-          vehicles: vehiclesRes.count ?? 0,
-          students: studentsRes.count ?? 0,
-          schools: schoolsRes.count ?? 0,
-          routes: routesRes.count ?? 0,
-          inspections: inspectionsRes.count ?? 0,
-        });
-       
-        const recentRaw = (recentInspRes.data as any[]) || [];
-
-        const mappedRecent: RecentInspection[] = recentRaw.map((row) => ({
-          id: row.id,
-          driver_name:
-            row.driver_name ??
-            row.driver ??
-            row.driver_full_name ??
-            null,
-          vehicle_label:
-            row.vehicle_label ??
-            row.vehicle ??
-            row.vehicle_label_full ??
-            null,
-          inspection_type: row.inspection_type ?? row.type ?? null,
-          shift: row.shift ?? row.shift_name ?? null,
-          overall_status: row.overall_status ?? row.status ?? null,
-          // pick *some* date-like field if present; otherwise null
-          submitted_at:
-            row.submitted_at ?? row.inspection_date ?? row.date ?? null,
-        }));
-
-        setRecentInspections(mappedRecent);
-
-      } 
-      catch (err: any) {
+        setCounts(body.counts);
+        setRecentInspections(body.recentInspections || []);
+      } catch (err: any) {
         console.error("Error loading admin dashboard:", err);
         setError(err?.message || "Failed to load dashboard data.");
       } finally {
@@ -310,4 +245,3 @@ export default function AdminDashboardTab() {
     </div>
   );
 }
-

@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
 
 // ==== TYPES & CONSTANTS (similar to pre-trip page) ====
 
@@ -13,14 +12,6 @@ type ChecklistItem = {
   id: string;
   label: string;
   category: string;
-};
-
-type TimeEntry = {
-  id: string;
-  work_date: string; // "YYYY-MM-DD"
-  start_time: string;
-  end_time: string | null;
-  duration_seconds: number | null;
 };
 
 type ShiftType = "AM" | "Midday" | "PM" | "";
@@ -73,62 +64,6 @@ const POST_CHECKLIST: ChecklistItem[] = [
 ];
 
 type AnswersState = Record<string, AnswerValue | null>;
-
-/**
- * Same helper as pre-trip
- */
-function getTodayDateString() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = `${now.getMonth() + 1}`.padStart(2, "0");
-  const day = `${now.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-/**
- * Stop work session if running – mirrors logic from driver/page.tsx
- * but without updating any local timer state (just closes the entry).
- */
-async function stopWorkSessionIfRunning(driverId: string) {
-  const todayStr = getTodayDateString();
-
-  try {
-    const { data: openEntry, error: openErr } = await supabase
-      .from("driver_time_entries")
-      .select("id, start_time")
-      .eq("driver_id", driverId)
-      .eq("work_date", todayStr)
-      .is("end_time", null)
-      .order("start_time", { ascending: false })
-      .limit(1)
-      .single();
-
-    if (openErr) {
-      // Most likely no open entry – nothing to stop
-      return;
-    }
-
-    const entry = openEntry as TimeEntry;
-    const now = new Date();
-    const start = new Date(entry.start_time);
-    const duration = Math.max(
-      0,
-      Math.floor((now.getTime() - start.getTime()) / 1000),
-    );
-
-    const { error: updateErr } = await supabase
-      .from("driver_time_entries")
-      .update({
-        end_time: now.toISOString(),
-        duration_seconds: duration,
-      })
-      .eq("id", entry.id);
-
-    if (updateErr) throw updateErr;
-  } catch (err) {
-    console.error("Failed to stop work session (post-trip page)", err);
-  }
-}
 
 /**
  * Same AnswerButton UI as on main driver page / pre-trip page
@@ -230,14 +165,12 @@ export default function PostTripPage() {
     const loadVehicle = async () => {
       setLoadingVehicle(true);
       try {
-        const { data, error: vehErr } = await supabase
-          .from("vehicles")
-          .select("*")
-          .eq("id", session.vehicleId)
-          .maybeSingle();
-
-        if (vehErr) throw vehErr;
-        setVehicle((data as Vehicle) ?? null);
+        const res = await fetch("/api/admin/vehicles");
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Failed to load vehicles");
+        const vehicles: Vehicle[] = json.vehicles || [];
+        const match = vehicles.find((v) => v.id === session.vehicleId);
+        setVehicle(match ?? null);
       } catch (err) {
         console.error("Failed to load vehicle for post-trip page", err);
       } finally {
@@ -309,26 +242,28 @@ export default function PostTripPage() {
         overallStatus = "unknown";
       }
 
-      // Insert inspection with inspection_type fixed to "post"
-      const { error: insertErr } = await supabase.from("inspections").insert({
-        driver_id: session.driverId,
-        driver_name: session.driverName.trim(),
-        driver_license_number: session.licenseNumber ?? null,
-        vehicle_id: vehicle.id,
-        vehicle_label: vehicle.label,
-        inspection_type: "post",
-        shift,
-        answers: answersPayload,
-        overall_status: overallStatus,
-        notes: notes || null,
-        signature_name: signatureName.trim(),
-        odometer_reading: odometer.trim(),
+      // Submit inspection via API route (also handles stopping work session)
+      const res = await fetch("/api/driver/inspections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          driver_id: session.driverId,
+          driver_name: session.driverName.trim(),
+          driver_license_number: session.licenseNumber ?? null,
+          vehicle_id: vehicle.id,
+          vehicle_label: vehicle.label,
+          inspection_type: "post",
+          shift,
+          answers: answersPayload,
+          overall_status: overallStatus,
+          notes: notes || null,
+          signature_name: signatureName.trim(),
+          odometer_reading: odometer.trim(),
+        }),
       });
 
-      if (insertErr) throw insertErr;
-
-      // Stop work session if there is an open one
-      await stopWorkSessionIfRunning(session.driverId);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to submit inspection");
 
       // Show confirmation message
       setSubmitMessage(

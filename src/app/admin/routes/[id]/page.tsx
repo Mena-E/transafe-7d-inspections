@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
 
 type Direction = "AM" | "MIDDAY" | "PM";
 
@@ -191,47 +190,18 @@ export default function EditRoutePage() {
           vehiclesRes,
           assignmentsRes,
         ] = await Promise.all([
-          supabase
-            .from("routes")
-            .select(
-              "id, name, direction, school_id, effective_start_date, effective_end_date, rate_per_mile, estimated_round_trip_mileage, effective_daily_rate, is_active",
-            )
-            .eq("id", routeId)
-            .single(),
-          supabase
-            .from("schools")
-            .select("id, name, address")
-            .order("name", { ascending: true }),
-          supabase
-            .from("students")
-            .select(
-                "id, full_name, pickup_address, pickup_city, pickup_state, pickup_zip, school_id",
-            )
-            .order("full_name", { ascending: true }),
-          supabase
-            .from("route_stops")
-            .select(
-              "id, route_id, sequence, stop_type, student_id, school_id, address, planned_time, notes",
-            )
-            .eq("route_id", routeId)
-            .order("sequence", { ascending: true }),
-          supabase
-            .from("drivers")
-            .select("id, full_name, is_active")
-            .order("full_name", { ascending: true }),
-          supabase
-            .from("vehicles")
-            .select("id, label, is_active")
-            .order("label", { ascending: true }),
-          supabase
-            .from("driver_route_assignments")
-            .select("id, driver_id, vehicle_id, day_of_week, is_active, notes")
-            .eq("route_id", routeId),
+          fetch(`/api/admin/routes?id=${routeId}`).then((r) => r.json()),
+          fetch("/api/admin/schools").then((r) => r.json()),
+          fetch("/api/admin/students").then((r) => r.json()),
+          fetch(`/api/admin/route-stops?route_id=${routeId}`).then((r) => r.json()),
+          fetch("/api/admin/drivers").then((r) => r.json()),
+          fetch("/api/admin/vehicles").then((r) => r.json()),
+          fetch(`/api/admin/route-assignments?route_id=${routeId}`).then((r) => r.json()),
         ]);
 
         // ----- ROUTE META -----
-        if (routeRes.error) throw routeRes.error;
-        const routeData = routeRes.data as RouteRecord;
+        if (routeRes.error) throw new Error(routeRes.error);
+        const routeData = routeRes.route as RouteRecord;
         if (!isMounted) return;
 
         setRoute(routeData);
@@ -256,15 +226,15 @@ export default function EditRoutePage() {
         setIsActive(routeData.is_active);
 
         // ----- SCHOOLS & STUDENTS -----
-        if (!schoolsRes.error && schoolsRes.data) {
-          setSchools(schoolsRes.data as SchoolOption[]);
+        if (!schoolsRes.error && schoolsRes.schools) {
+          setSchools(schoolsRes.schools as SchoolOption[]);
         }
 
-        const studentsData = (studentsRes.data || []) as StudentOption[];
+        const studentsData = (studentsRes.students || []) as StudentOption[];
         setStudents(studentsData);
 
         const schoolNameMap = new Map<string, string>();
-        (schoolsRes.data || []).forEach((s: any) => {
+        (schoolsRes.schools || []).forEach((s: any) => {
           if (s.id) schoolNameMap.set(s.id, s.name || "Unnamed school");
         });
 
@@ -274,12 +244,12 @@ export default function EditRoutePage() {
         });
 
         // ----- STOPS -----
-if (!stopsRes.error && stopsRes.data) {
-  const rawStops = stopsRes.data as any[];
+if (!stopsRes.error && stopsRes.stops) {
+  const rawStops = stopsRes.stops as any[];
 
   // Fast lookup for schools (name + address)
   const schoolMap = new Map<string, SchoolOption>();
-  (schoolsRes.data || []).forEach((s: any) => {
+  (schoolsRes.schools || []).forEach((s: any) => {
     if (s.id) {
       schoolMap.set(s.id, s as SchoolOption);
       schoolNameMap.set(s.id, s.name || "Unnamed school");
@@ -365,11 +335,11 @@ if (!stopsRes.error && stopsRes.data) {
 }
 
         // ----- DRIVERS & VEHICLES -----
-        if (!driversRes.error && driversRes.data) {
-          setDrivers(driversRes.data as DriverOption[]);
+        if (!driversRes.error && driversRes.drivers) {
+          setDrivers(driversRes.drivers as DriverOption[]);
         }
-        if (!vehiclesRes.error && vehiclesRes.data) {
-          setVehicles(vehiclesRes.data as VehicleOption[]);
+        if (!vehiclesRes.error && vehiclesRes.vehicles) {
+          setVehicles(vehiclesRes.vehicles as VehicleOption[]);
         }
 
         // ----- ASSIGNMENTS -----
@@ -385,8 +355,8 @@ if (!stopsRes.error && stopsRes.data) {
           }),
         );
 
-        if (!assignmentsRes.error && assignmentsRes.data) {
-          (assignmentsRes.data as any[]).forEach((row) => {
+        if (!assignmentsRes.error && assignmentsRes.assignments) {
+          (assignmentsRes.assignments as any[]).forEach((row) => {
             const idx = baseAssignments.findIndex(
               (a) => a.day_of_week === row.day_of_week,
             );
@@ -455,12 +425,13 @@ if (!stopsRes.error && stopsRes.data) {
         is_active: isActive,
       };
 
-      const { error: updateErr } = await supabase
-        .from("routes")
-        .update(payload)
-        .eq("id", route.id);
-
-      if (updateErr) throw updateErr;
+      const res = await fetch("/api/admin/routes", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: route.id, ...payload }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to update route.");
     } catch (err: any) {
       console.error("Error updating route meta:", err);
       setMetaError(err?.message ?? "Failed to update route.");
@@ -514,12 +485,11 @@ if (!stopsRes.error && stopsRes.data) {
     setStopsError(null);
 
     try {
-      const { error: delErr } = await supabase
-        .from("route_stops")
-        .delete()
-        .eq("id", stopId);
-
-      if (delErr) throw delErr;
+      const res = await fetch(`/api/admin/route-stops?id=${stopId}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to delete stop.");
 
       // Just remove it from local array; sequence will be normalized on save
       setStops((prev) => prev.filter((s) => s.id !== stopId));
@@ -584,17 +554,15 @@ if (!stopsRes.error && stopsRes.data) {
 
     console.log("Inserting stop with payload:", insertPayload);
 
-    const { data, error: insertErr } = await supabase
-      .from("route_stops")
-      .insert(insertPayload)
-      .select(
-        "id, sequence, stop_type, student_id, school_id, address, planned_time, notes",
-      )
-      .single();
+    const res = await fetch("/api/admin/route-stops", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(insertPayload),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || "Failed to add stop.");
 
-    if (insertErr) throw insertErr;
-
-    const row = data as any;
+    const row = json.stop as any;
 
     const student =
       row.student_id &&
@@ -654,11 +622,13 @@ if (!stopsRes.error && stopsRes.data) {
 
       console.log("Saving stops upsert payload:", payload);
 
-      const { error: upsertErr } = await supabase
-        .from("route_stops")
-        .upsert(payload, { onConflict: "id" });
-
-      if (upsertErr) throw upsertErr;
+      const res = await fetch("/api/admin/route-stops", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to save stops.");
     } catch (err: any) {
       console.error("Error saving stops:", err);
       setStopsError(err?.message ?? "Failed to save stops.");
@@ -741,12 +711,9 @@ if (!stopsRes.error && stopsRes.data) {
     setAssignmentsError(null);
 
     try {
-      const { data, error } = await supabase
-        .from("driver_route_assignments")
-        .select("id, driver_id, vehicle_id, day_of_week, is_active, notes")
-        .eq("route_id", routeId);
-
-      if (error) throw error;
+      const res = await fetch(`/api/admin/route-assignments?route_id=${routeId}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to refresh assignments.");
 
       const base: AssignmentRow[] = Array.from({ length: 7 }, (_, day) => ({
         id: null,
@@ -757,7 +724,7 @@ if (!stopsRes.error && stopsRes.data) {
         notes: "",
       }));
 
-      (data || []).forEach((row: any) => {
+      (json.assignments || []).forEach((row: any) => {
         const idx = base.findIndex((b) => b.day_of_week === row.day_of_week);
         if (idx !== -1) {
           base[idx] = {
@@ -807,55 +774,42 @@ if (!stopsRes.error && stopsRes.data) {
   setAssignmentsError(null);
 
   try {
-    // We save each day's assignment one-by-one.
-    for (const row of assignments) {
-      const hasAssignment = !!row.driver_id && !!row.vehicle_id;
+    const res = await fetch("/api/admin/route-assignments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        route_id: route?.id ?? routeId,
+        assignments,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || "Failed to save assignments.");
 
-      if (!hasAssignment) {
-        // If there is no driver/vehicle selected, delete any existing assignment row.
-        if (row.id) {
-          const { error } = await supabase
-            .from("driver_route_assignments")
-            .delete()
-            .eq("id", row.id);
+    // Refresh from the response so ids and values stay in sync
+    const base: AssignmentRow[] = Array.from({ length: 7 }, (_, day) => ({
+      id: null,
+      day_of_week: day,
+      driver_id: null,
+      vehicle_id: null,
+      is_active: true,
+      notes: "",
+    }));
 
-          if (error) throw error;
-        }
-        continue;
+    (json.assignments || []).forEach((row: any) => {
+      const idx = base.findIndex((b) => b.day_of_week === row.day_of_week);
+      if (idx !== -1) {
+        base[idx] = {
+          id: row.id,
+          day_of_week: row.day_of_week,
+          driver_id: row.driver_id,
+          vehicle_id: row.vehicle_id,
+          is_active: row.is_active ?? true,
+          notes: row.notes ?? "",
+        };
       }
+    });
 
-      if (row.id) {
-        // Update existing assignment
-        const { error } = await supabase
-          .from("driver_route_assignments")
-          .update({
-            driver_id: row.driver_id,
-            vehicle_id: row.vehicle_id,
-            is_active: true,
-            notes: row.notes || null,
-          })
-          .eq("id", row.id);
-
-        if (error) throw error;
-      } else {
-        // Insert new assignment
-        const { error } = await supabase
-          .from("driver_route_assignments")
-          .insert({
-            route_id: route?.id ?? routeId,
-            day_of_week: row.day_of_week,
-            driver_id: row.driver_id,
-            vehicle_id: row.vehicle_id,
-            is_active: true,
-            notes: row.notes || null,
-          });
-
-        if (error) throw error;
-      }
-    }
-
-    // Refresh from DB so ids and values stay in sync
-    await reloadAssignments();
+    setAssignments(base);
   } catch (err: any) {
     console.error("Error saving assignments:", err);
     setAssignmentsError(

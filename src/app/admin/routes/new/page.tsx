@@ -5,7 +5,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabaseClient";
 
 type School = {
   id: string;
@@ -44,15 +43,12 @@ export default function NewRoutePage() {
     async function loadSchools() {
       setLoadingSchools(true);
       try {
-        const { data, error: schoolErr } = await supabase
-          .from("schools")
-          .select("id, name")
-          .order("name", { ascending: true });
-
-        if (schoolErr) throw schoolErr;
+        const res = await fetch("/api/admin/schools");
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Failed to load schools.");
         if (!isMounted) return;
 
-        setSchools((data || []) as School[]);
+        setSchools((json.schools || []) as School[]);
       } catch (err: any) {
         console.error("Error loading schools:", err);
         if (!isMounted) return;
@@ -117,11 +113,13 @@ export default function NewRoutePage() {
         is_active: isActive,
       };
 
-      const { error: insertErr } = await supabase
-        .from("routes")
-        .insert(payload);
-
-      if (insertErr) throw insertErr;
+      const res = await fetch("/api/admin/routes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to create route.");
 
       // After save, go back to Admin Routes tab
       router.push("/admin#routes");

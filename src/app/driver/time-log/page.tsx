@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
 
 type TimeEntry = {
   id: string;
@@ -180,20 +179,16 @@ export default function DriverTimeLogPage() {
       setError(null);
 
       try {
-        const { data, error: timeErr } = await supabase
-          .from("driver_time_entries")
-          .select(
-            "id, driver_id, work_date, start_time, end_time, duration_seconds",
-          )
-          .eq("driver_id", driver.driverId)
-          .gte("work_date", weekStartYMD)
-          .lte("work_date", weekEndYMD)
-          .order("work_date", { ascending: false })
-          .order("start_time", { ascending: true });
+        const params = new URLSearchParams({
+          driverId: driver.driverId,
+          startDate: weekStartYMD,
+          endDate: weekEndYMD,
+        });
+        const res = await fetch(`/api/driver/time-entries?${params}`);
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Failed to load time entries");
 
-        if (timeErr) throw timeErr;
-
-        setEntries((data as TimeEntry[]) || []);
+        setEntries((json.entries as TimeEntry[]) || []);
       } catch (err: any) {
         console.error(err);
         setError(

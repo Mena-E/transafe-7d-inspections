@@ -4,7 +4,6 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabaseClient";
 
 export default function NewSchoolPage() {
   const router = useRouter();
@@ -40,11 +39,13 @@ export default function NewSchoolPage() {
         notes: notes.trim() || null,
       };
 
-      const { error: insertErr } = await supabase
-        .from("schools")
-        .insert(payload);
-
-      if (insertErr) throw insertErr;
+      const res = await fetch("/api/admin/schools", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to create school.");
 
       // After save, go back to Schools tab
       router.push("/admin#schools");

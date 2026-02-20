@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabaseClient";
 
 export default function NewVehiclePage() {
   const router = useRouter();
@@ -41,14 +40,15 @@ export default function NewVehiclePage() {
         is_active: isActive,
       };
 
-      const { error: insertErr } = await supabase
-        .from("vehicles")
-        .insert(payload)
-        .single();
-
-      if (insertErr) {
-        console.error(insertErr);
-        throw insertErr;
+      const res = await fetch("/api/admin/vehicles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        console.error(json.error);
+        throw new Error(json.error || "Failed to create vehicle.");
       }
 
       // Go back to Vehicles tab on success

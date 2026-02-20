@@ -4,7 +4,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
 
 type TimeEntry = {
   id: string;
@@ -102,56 +101,25 @@ export default function AdminDriverTimecardDetailPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load driver info
-  useEffect(() => {
-    if (!driverId) return;
-
-    const loadDriver = async () => {
-      try {
-        const { data, error: drvErr } = await supabase
-          .from("drivers")
-          .select("id, full_name, license_number")
-          .eq("id", driverId)
-          .maybeSingle();
-
-        if (drvErr) throw drvErr;
-        setDriver((data as Driver) || null);
-      } catch (err: any) {
-        console.error(err);
-        setError(
-          err?.message ?? "Failed to load driver details for this timecard.",
-        );
-      }
-    };
-
-    void loadDriver();
-  }, [driverId]);
-
-  // Load time entries for this driver in this Sun–Sat week
+  // Load driver info and time entries together
   useEffect(() => {
     if (!driverId || !weekStartYmd) return;
 
-    const loadEntries = async () => {
+    const loadData = async () => {
       setLoading(true);
       setError(null);
 
       try {
         const weekEndYmd = getWeekEndYmdFromStart(weekStartYmd);
 
-        const { data, error: timeErr } = await supabase
-          .from("driver_time_entries")
-          .select(
-            "id, driver_id, work_date, start_time, end_time, duration_seconds",
-          )
-          .eq("driver_id", driverId)
-          .gte("work_date", weekStartYmd)
-          .lte("work_date", weekEndYmd)
-          .order("work_date", { ascending: true })
-          .order("start_time", { ascending: true });
+        const res = await fetch(
+          `/api/admin/timecards?driverId=${driverId}&weekStart=${weekStartYmd}&weekEnd=${weekEndYmd}`
+        );
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Failed to load timecard data.");
 
-        if (timeErr) throw timeErr;
-
-        setEntries((data as TimeEntry[]) || []);
+        setDriver((json.driver as Driver) || null);
+        setEntries((json.entries as TimeEntry[]) || []);
       } catch (err: any) {
         console.error(err);
         setError(
@@ -163,7 +131,7 @@ export default function AdminDriverTimecardDetailPage() {
       }
     };
 
-    void loadEntries();
+    void loadData();
   }, [driverId, weekStartYmd]);
 
   // Build Sun–Sat day list from weekStartYmd

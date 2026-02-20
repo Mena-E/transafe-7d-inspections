@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+
 import Link from "next/link";
 
 export default function AdminAddDriverPage() {
@@ -42,11 +42,13 @@ export default function AdminAddDriverPage() {
         payload.pin = pin.trim();
       }
 
-      const { error: insertErr } = await supabase
-        .from("drivers")
-        .insert(payload);
-
-      if (insertErr) throw insertErr;
+      const res = await fetch("/api/admin/drivers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to create driver.");
 
       // On success, go back to admin Drivers tab
       router.push("/admin#drivers");

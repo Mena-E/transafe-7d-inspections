@@ -4,7 +4,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabaseClient";
 
 type School = {
   id: string;
@@ -45,13 +44,10 @@ export default function EditSchoolPage() {
       }
 
       try {
-        const { data, error: selErr } = await supabase
-          .from("schools")
-          .select("id, name, address, phone, start_time, end_time, notes")
-          .eq("id", schoolId)
-          .single();
-
-        if (selErr) throw selErr;
+        const res = await fetch(`/api/admin/schools?id=${schoolId}`);
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Failed to load school.");
+        const data = json.school;
         if (!isMounted) return;
 
         const sc = data as School;
@@ -103,12 +99,13 @@ export default function EditSchoolPage() {
         notes: notes.trim() || null,
       };
 
-      const { error: updErr } = await supabase
-        .from("schools")
-        .update(payload)
-        .eq("id", schoolId);
-
-      if (updErr) throw updErr;
+      const res = await fetch("/api/admin/schools", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: schoolId, ...payload }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to update school.");
 
       router.push("/admin#schools");
     } catch (err: any) {

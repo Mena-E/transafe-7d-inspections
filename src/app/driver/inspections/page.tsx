@@ -4,7 +4,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
 
 type DriverSession = {
   driverId: string;
@@ -95,29 +94,18 @@ export default function DriverInspectionHistoryPage() {
       setError(null);
 
       try {
-        const ninetyDaysAgo = new Date();
-        ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-
-        let query = supabase
-          .from("inspections")
-          .select(
-            "id,driver_id,driver_name,vehicle_label,inspection_type,shift,submitted_at,inspection_date,overall_status",
-          )
-          .gte("submitted_at", ninetyDaysAgo.toISOString())
-          .order("submitted_at", { ascending: false });
-
-        // Prefer driver_id filter; fall back to driver_name if needed
+        const params = new URLSearchParams();
         if (driver.driverId) {
-          query = query.eq("driver_id", driver.driverId);
+          params.set("driverId", driver.driverId);
         } else {
-          query = query.eq("driver_name", driver.driverName);
+          params.set("driverName", driver.driverName);
         }
 
-        const { data, error: inspErr } = await query;
+        const res = await fetch(`/api/driver/inspections?${params}`);
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Failed to load inspections");
 
-        if (inspErr) throw inspErr;
-
-        setInspections((data as InspectionRecord[]) || []);
+        setInspections((json.inspections as InspectionRecord[]) || []);
       } catch (err: any) {
         console.error(err);
         setError(

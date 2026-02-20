@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
 
 type InspectionRecord = {
   id: string;
@@ -86,26 +85,24 @@ export default function InspectionDetailPage() {
       setError(null);
       try {
         // Get inspection record
-        const { data, error: err } = await supabase
-          .from("inspections")
-          .select("*")
-          .eq("id", id)
-          .single();
-
-        if (err) throw err;
-        const rec = data as InspectionRecord;
+        const inspRes = await fetch(`/api/admin/inspections?id=${id}`);
+        if (!inspRes.ok) {
+          const body = await inspRes.json();
+          throw new Error(body.error || "Failed to load inspection");
+        }
+        const inspBody = await inspRes.json();
+        const rec = inspBody.inspection as InspectionRecord;
         setRecord(rec);
 
         // Get vehicle details, if we have a vehicle_id
         if (rec.vehicle_id) {
-          const { data: vData, error: vErr } = await supabase
-            .from("vehicles")
-            .select("id,label,year,make,model,plate,vin")
-            .eq("id", rec.vehicle_id)
-            .single();
-
-          if (!vErr && vData) {
-            setVehicle(vData as Vehicle);
+          const vehRes = await fetch("/api/admin/vehicles");
+          if (vehRes.ok) {
+            const vehBody = await vehRes.json();
+            const match = (vehBody.vehicles || []).find(
+              (v: Vehicle) => v.id === rec.vehicle_id,
+            );
+            if (match) setVehicle(match);
           }
         }
       } catch (e: any) {

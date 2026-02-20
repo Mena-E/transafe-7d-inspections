@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
 
 // ==== TYPES & CONSTANTS SHARED WITH DRIVER PORTAL ====
 
@@ -13,14 +12,6 @@ type ChecklistItem = {
   id: string;
   label: string;
   category: string;
-};
-
-type TimeEntry = {
-  id: string;
-  work_date: string; // "YYYY-MM-DD"
-  start_time: string;
-  end_time: string | null;
-  duration_seconds: number | null;
 };
 
 type ShiftType = "AM" | "Midday" | "PM" | "";
@@ -195,59 +186,6 @@ const PRE_CHECKLIST: ChecklistItem[] = [
 
 type AnswersState = Record<string, AnswerValue | null>;
 
-/**
- * Small helper – same as in Driver Portal
- */
-function getTodayDateString() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = `${now.getMonth() + 1}`.padStart(2, "0");
-  const day = `${now.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-/**
- * Start work session if needed – same logic as in Driver Portal pre-trip
- */
-async function startWorkSessionIfNeeded(driverId: string) {
-  const todayStr = getTodayDateString();
-
-  try {
-    const { data: existing, error: existingErr } = await supabase
-      .from("driver_time_entries")
-      .select("id, start_time, end_time")
-      .eq("driver_id", driverId)
-      .eq("work_date", todayStr)
-      .is("end_time", null)
-      .maybeSingle();
-
-    if (existingErr && (existingErr as any).code !== "PGRST116") {
-      throw existingErr;
-    }
-
-    // If there is already an open entry, do nothing
-    if (existing && !existing.end_time) {
-      return;
-    }
-
-    const now = new Date();
-    const nowIso = now.toISOString();
-
-    const { error: insertErr } = await supabase
-      .from("driver_time_entries")
-      .insert({
-        driver_id: driverId,
-        work_date: todayStr,
-        start_time: nowIso,
-      })
-      .select()
-      .single();
-
-    if (insertErr) throw insertErr;
-  } catch (err) {
-    console.error("Failed to start work session (pre-trip page)", err);
-  }
-}
 
 /**
  * Same AnswerButton UI as on main driver page
@@ -349,14 +287,12 @@ export default function PreTripPage() {
     const loadVehicle = async () => {
       setLoadingVehicle(true);
       try {
-        const { data, error: vehErr } = await supabase
-          .from("vehicles")
-          .select("*")
-          .eq("id", session.vehicleId)
-          .maybeSingle();
-
-        if (vehErr) throw vehErr;
-        setVehicle((data as Vehicle) ?? null);
+        const res = await fetch("/api/admin/vehicles");
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Failed to load vehicles");
+        const vehicles: Vehicle[] = json.vehicles || [];
+        const match = vehicles.find((v) => v.id === session.vehicleId);
+        setVehicle(match ?? null);
       } catch (err) {
         console.error("Failed to load vehicle for pre-trip page", err);
       } finally {
@@ -428,26 +364,28 @@ export default function PreTripPage() {
         overallStatus = "unknown";
       }
 
-      // Insert inspection – this mirrors your existing logic, but with inspection_type fixed to "pre"
-      const { error: insertErr } = await supabase.from("inspections").insert({
-        driver_id: session.driverId,
-        driver_name: session.driverName.trim(),
-        driver_license_number: session.licenseNumber ?? null,
-        vehicle_id: vehicle.id,
-        vehicle_label: vehicle.label,
-        inspection_type: "pre",
-        shift,
-        answers: answersPayload,
-        overall_status: overallStatus,
-        notes: notes || null,
-        signature_name: signatureName.trim(),
-        odometer_reading: odometer.trim(),
+      // Submit inspection via API route (also handles starting work session)
+      const res = await fetch("/api/driver/inspections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          driver_id: session.driverId,
+          driver_name: session.driverName.trim(),
+          driver_license_number: session.licenseNumber ?? null,
+          vehicle_id: vehicle.id,
+          vehicle_label: vehicle.label,
+          inspection_type: "pre",
+          shift,
+          answers: answersPayload,
+          overall_status: overallStatus,
+          notes: notes || null,
+          signature_name: signatureName.trim(),
+          odometer_reading: odometer.trim(),
+        }),
       });
 
-      if (insertErr) throw insertErr;
-
-      // Start work session if needed (same behavior as pre-trip on main page)
-      await startWorkSessionIfNeeded(session.driverId);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to submit inspection");
 
       // Show confirmation message
       setSubmitMessage(

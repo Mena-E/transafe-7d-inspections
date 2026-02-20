@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabaseClient";
 
 type Vehicle = {
   id: string;
@@ -58,13 +57,10 @@ export default function VehicleDetailPage() {
       setError(null);
 
       try {
-        const { data, error: fetchErr } = await supabase
-          .from("vehicles")
-          .select("*")
-          .eq("id", vehicleId)
-          .single();
-
-        if (fetchErr) throw fetchErr;
+        const res = await fetch(`/api/admin/vehicles?id=${vehicleId}`);
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Failed to load vehicle.");
+        const data = json.vehicle;
         if (!data) {
           throw new Error("Vehicle not found.");
         }
@@ -111,16 +107,15 @@ export default function VehicleDetailPage() {
         is_active: isActive,
       };
 
-      const { data, error: updateErr } = await supabase
-        .from("vehicles")
-        .update(payload)
-        .eq("id", vehicleId)
-        .select()
-        .single();
+      const res = await fetch("/api/admin/vehicles", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: vehicleId, ...payload }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to update vehicle.");
 
-      if (updateErr) throw updateErr;
-
-      const updated = data as Vehicle;
+      const updated = json.vehicle as Vehicle;
       setVehicle(updated);
 
       // Small toast via alert for now
@@ -149,12 +144,11 @@ export default function VehicleDetailPage() {
 
     try {
       // If routes / stops reference this, you might need to handle that first
-      const { error: deleteErr } = await supabase
-        .from("vehicles")
-        .delete()
-        .eq("id", vehicle.id);
-
-      if (deleteErr) throw deleteErr;
+      const res = await fetch(`/api/admin/vehicles?id=${vehicle.id}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to delete vehicle.");
 
       alert("Vehicle deleted.");
       router.push("/admin#vehicles");

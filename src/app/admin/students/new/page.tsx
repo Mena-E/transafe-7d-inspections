@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabaseClient";
 
 type School = { id: string; name: string };
 
@@ -51,16 +50,14 @@ export default function AdminStudentNewPage() {
   useEffect(() => {
     if (!isAuthed) return;
     (async () => {
-      const { data, error } = await supabase
-        .from("schools")
-        .select("id, name")
-        .order("name", { ascending: true });
-      if (error) {
-        console.error(error);
+      const res = await fetch("/api/admin/schools");
+      const json = await res.json();
+      if (!res.ok) {
+        console.error(json.error);
         setError("Failed to load schools.");
         return;
       }
-      setSchools((data as School[]) ?? []);
+      setSchools((json.schools as School[]) ?? []);
     })();
   }, [isAuthed]);
 
@@ -104,42 +101,27 @@ export default function AdminStudentNewPage() {
         };
 
 
-      const { data: studentRow, error: sErr } = await supabase
-        .from("students")
-        .insert(studentPayload)
-        .select("id")
-        .single();
+      const apiPayload: Record<string, any> = { ...studentPayload };
 
-      if (sErr) throw sErr;
-      const newStudentId: string = studentRow!.id;
-
-      // 2) if guardian info present, create guardian + link
+      // 2) if guardian info present, include it in the API call
       if (guardianProvided) {
         const digits = normalizePhone(pgPhone);
-
-        const guardianPayload = {
+        apiPayload.guardian = {
           full_name: pgName.trim(),
           phone: digits,
           email: pgEmail.trim() || null,
           preferred_contact_method: pgPref,
-        };
-
-        const { data: guardianRow, error: gErr } = await supabase
-          .from("guardians")
-          .insert(guardianPayload)
-          .select("id")
-          .single();
-
-        if (gErr) throw gErr;
-
-        const { error: linkErr } = await supabase.from("student_guardians").insert({
-          student_id: newStudentId,
-          guardian_id: guardianRow!.id,
           relationship: pgRelationship || "Primary",
-        });
-
-        if (linkErr) throw linkErr;
+        };
       }
+
+      const res = await fetch("/api/admin/students", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(apiPayload),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to create student.");
 
       // 3) redirect to Students tab
       router.replace("/admin#students");

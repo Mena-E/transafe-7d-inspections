@@ -4,7 +4,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabaseClient";
 
 // === ROUTES TAB COMPONENT (ANCHOR) ===
 
@@ -54,7 +53,7 @@ export default function RoutesTab() {
   const [directionFilter, setDirectionFilter] = useState<"" | "AM" | "MIDDAY" | "PM">("");
   const [schoolFilter, setSchoolFilter] = useState<string>("");
 
-  // ---- NEW: bulk delete state ----
+  // ---- bulk delete state ----
   const [selectedRouteIds, setSelectedRouteIds] = useState<string[]>([]);
   const [isDeletingRoutes, setIsDeletingRoutes] = useState(false);
   const [routesDeleteError, setRoutesDeleteError] = useState<string | null>(null);
@@ -66,41 +65,24 @@ export default function RoutesTab() {
 
       try {
         const [routesRes, schoolsRes] = await Promise.all([
-          supabase
-            .from("routes")
-            .select(
-              `
-              id,
-              name,
-              direction,
-              school_id,
-              effective_start_date,
-              effective_end_date,
-              rate_per_mile,
-              estimated_round_trip_mileage,
-              effective_daily_rate,
-              is_active,
-              description
-              `
-            )
-            .order("name", { ascending: true }),
-          supabase
-            .from("schools")
-            .select("id, name")
-            .order("name", { ascending: true }),
+          fetch("/api/admin/routes"),
+          fetch("/api/admin/schools"),
         ]);
 
-        if (routesRes.error) {
-          console.error(routesRes.error);
-          setError("Failed to load routes.");
-        } else {
-          setRoutes((routesRes.data || []) as RouteRow[]);
-        }
+        if (!routesRes.ok) throw new Error("Failed to load routes");
+        if (!schoolsRes.ok) throw new Error("Failed to load schools");
 
-        if (!schoolsRes.error && schoolsRes.data) {
-          setSchools(schoolsRes.data as School[]);
-        }
-      } catch (err) {
+        const routesBody = await routesRes.json();
+        const schoolsBody = await schoolsRes.json();
+
+        setRoutes((routesBody.routes || []) as RouteRow[]);
+        setSchools(
+          (schoolsBody.schools || []).map((s: any) => ({
+            id: s.id,
+            name: s.name ?? null,
+          }))
+        );
+      } catch (err: any) {
         console.error(err);
         setError("Failed to load routes.");
       } finally {
@@ -136,18 +118,16 @@ export default function RoutesTab() {
     });
   }, [routes, search, directionFilter, schoolFilter, schoolMap]);
 
-  // ---- NEW: selection helpers (applied to *visible* routes) ----
+  // ---- selection helpers (applied to *visible* routes) ----
   const allVisibleSelected =
     filteredRoutes.length > 0 &&
     filteredRoutes.every((r) => selectedRouteIds.includes(r.id));
 
   const toggleSelectAllRoutes = () => {
     if (allVisibleSelected) {
-      // Unselect all visible routes
       const visibleIds = new Set(filteredRoutes.map((r) => r.id));
       setSelectedRouteIds((prev) => prev.filter((id) => !visibleIds.has(id)));
     } else {
-      // Add all visible routes to selection
       const visibleIds = filteredRoutes.map((r) => r.id);
       setSelectedRouteIds((prev) => {
         const set = new Set(prev);
@@ -165,7 +145,7 @@ export default function RoutesTab() {
     );
   };
 
-  // ---- NEW: bulk delete handler ----
+  // ---- bulk delete handler ----
   const handleDeleteSelectedRoutes = async () => {
     if (selectedRouteIds.length === 0) return;
 
@@ -178,34 +158,18 @@ export default function RoutesTab() {
     setRoutesDeleteError(null);
 
     try {
-      const idsToDelete = [...selectedRouteIds];
+      const res = await fetch("/api/admin/routes", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: selectedRouteIds }),
+      });
 
-      // 1) Delete driver assignments for these routes (if not using ON DELETE CASCADE)
-      const { error: assignmentsErr } = await supabase
-        .from("driver_route_assignments")
-        .delete()
-        .in("route_id", idsToDelete);
+      if (!res.ok) {
+        const body = await res.json();
+        throw new Error(body.error || "Failed to delete routes");
+      }
 
-      if (assignmentsErr) throw assignmentsErr;
-
-      // 2) Delete route stops for these routes
-      const { error: stopsErr } = await supabase
-        .from("route_stops")
-        .delete()
-        .in("route_id", idsToDelete);
-
-      if (stopsErr) throw stopsErr;
-
-      // 3) Delete the routes themselves
-      const { error: routesErr } = await supabase
-        .from("routes")
-        .delete()
-        .in("id", idsToDelete);
-
-      if (routesErr) throw routesErr;
-
-      // 4) Update UI: remove deleted routes locally and clear selection
-      setRoutes((prev) => prev.filter((r) => !idsToDelete.includes(r.id)));
+      setRoutes((prev) => prev.filter((r) => !selectedRouteIds.includes(r.id)));
       setSelectedRouteIds([]);
     } catch (err: any) {
       console.error("Error deleting routes:", err);
@@ -337,7 +301,7 @@ export default function RoutesTab() {
             <table className="min-w-full text-left text-[11px] text-slate-200">
               <thead>
                 <tr className="border-b border-slate-800 bg-slate-900/80">
-                  {/* NEW: Select-all checkbox */}
+                  {/* Select-all checkbox */}
                   <th className="px-3 py-2">
                     <input
                       type="checkbox"
@@ -362,7 +326,7 @@ export default function RoutesTab() {
                     key={route.id}
                     className="border-b border-slate-900/60 hover:bg-slate-900/50"
                   >
-                    {/* NEW: Row selection checkbox */}
+                    {/* Row selection checkbox */}
                     <td className="px-3 py-2 align-top">
                       <input
                         type="checkbox"
