@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useRouter } from "next/navigation";
 import DriverLoginForm from "./_components/DriverLoginForm";
@@ -67,6 +67,51 @@ function getTodayDateString() {
   return `${year}-${month}-${day}`;
 }
 
+const ONE_HOUR_MS = 60 * 60 * 1000;
+
+function findNextPickupTime(
+  stopsMap: Record<string, RouteStopForDriver[]>,
+  attendanceState: Record<string, AttendanceStatus>,
+): Date | null {
+  const now = new Date();
+  let earliest: Date | null = null;
+
+  for (const stops of Object.values(stopsMap)) {
+    for (const stop of stops) {
+      if (stop.stop_type !== "pickup_home" && stop.stop_type !== "pickup_school") continue;
+      if (!stop.planned_time) continue;
+
+      const studentIds =
+        stop.household_student_ids.length > 0
+          ? stop.household_student_ids
+          : stop.student_id
+            ? [stop.student_id]
+            : [];
+
+      if (studentIds.length === 0) continue;
+
+      const allConfirmed = studentIds.every((sid) => {
+        const compositeKey = `${sid}:${stop.id}`;
+        return attendanceState[compositeKey] || attendanceState[sid];
+      });
+
+      if (allConfirmed) continue;
+
+      const parts = stop.planned_time.split(":");
+      const pickupDate = new Date();
+      pickupDate.setHours(parseInt(parts[0], 10), parseInt(parts[1], 10), 0, 0);
+
+      if (pickupDate.getTime() <= now.getTime()) continue;
+
+      if (!earliest || pickupDate.getTime() < earliest.getTime()) {
+        earliest = pickupDate;
+      }
+    }
+  }
+
+  return earliest;
+}
+
 export default function DriverPage() {
   const router = useRouter();
 
@@ -83,6 +128,13 @@ export default function DriverPage() {
   const [clockBaseSeconds, setClockBaseSeconds] = useState(0);
   const [activeSince, setActiveSince] = useState<Date | null>(null);
   const [displaySeconds, setDisplaySeconds] = useState(0);
+
+  // Auto-pause state
+  const [clockPaused, setClockPaused] = useState<{
+    resumeAt: Date;
+    nextPickupTime: string;
+  } | null>(null);
+  const pauseCheckedRef = useRef(false);
 
   // Today's routes state
   const [todayRoutesLoading, setTodayRoutesLoading] = useState(false);
@@ -218,10 +270,10 @@ export default function DriverPage() {
       setTodayRoutes(routes);
       setTodayRouteStops(body.stopsMap ?? {});
 
-      // Track original counts per shift for post-trip gating
-      const amCount = routes.filter((r) => r.direction === "AM" || r.direction === "MIDDAY").length;
-      const pmCount = routes.filter((r) => r.direction === "PM").length;
-      setOriginalRouteCounts({ AM: amCount, PM: pmCount });
+      // Use server-provided total counts (includes already-completed routes)
+      if (body.totalRouteCounts) {
+        setOriginalRouteCounts(body.totalRouteCounts);
+      }
 
       // Load existing attendance for today
       if (body.attendance) {
@@ -286,6 +338,7 @@ export default function DriverPage() {
     if (!isSessionReady || !currentDriver?.id) return;
     const onFocus = () => {
       checkShiftInspections(currentDriver.id);
+      loadTimeForToday(currentDriver.id);
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
@@ -310,6 +363,64 @@ export default function DriverPage() {
     return () => clearInterval(id);
   }, [activeSince, clockBaseSeconds]);
 
+  // Auto-resume timer
+  useEffect(() => {
+    if (!clockPaused || !currentDriver?.id) return;
+
+    const doResume = async () => {
+      try {
+        await fetch("/api/driver/time", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ driver_id: currentDriver.id, action: "resume" }),
+        });
+        await loadTimeForToday(currentDriver.id);
+        setClockPaused(null);
+      } catch (err) {
+        console.error("Failed to auto-resume clock:", err);
+      }
+    };
+
+    const msUntilResume = clockPaused.resumeAt.getTime() - Date.now();
+
+    if (msUntilResume <= 0) {
+      doResume();
+      return;
+    }
+
+    const timer = setTimeout(doResume, msUntilResume);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clockPaused, currentDriver?.id]);
+
+  // Restore pause state after page load / refresh
+  useEffect(() => {
+    if (!isSessionReady || !currentDriver?.id) return;
+    if (todayRoutesLoading) return;
+    if (pauseCheckedRef.current) return;
+
+    pauseCheckedRef.current = true;
+
+    if (activeSince !== null) return;
+    if (clockBaseSeconds === 0) return;
+    if (todayRoutes.length === 0) return;
+
+    const nextPickup = findNextPickupTime(todayRouteStops, attendanceMap);
+    if (!nextPickup) return;
+
+    const resumeAt = new Date(Math.max(nextPickup.getTime() - ONE_HOUR_MS, Date.now()));
+
+    setClockPaused({
+      resumeAt,
+      nextPickupTime: nextPickup.toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      }),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSessionReady, currentDriver?.id, todayRoutesLoading, activeSince, clockBaseSeconds, todayRoutes, todayRouteStops, attendanceMap]);
+
   // Login handler
   const handleLoginSuccess = (
     driver: Driver,
@@ -333,6 +444,8 @@ export default function DriverPage() {
     setClockBaseSeconds(0);
     setActiveSince(null);
     setDisplaySeconds(0);
+    setClockPaused(null);
+    pauseCheckedRef.current = false;
     setAttendanceMap({});
 
     if (typeof window !== "undefined") {
@@ -388,8 +501,41 @@ export default function DriverPage() {
     }
   };
 
-  const handleAttendanceChange = (studentId: string, status: AttendanceStatus) => {
-    setAttendanceMap((prev) => ({ ...prev, [studentId]: status }));
+  const handleAttendanceChange = async (compositeKey: string, status: AttendanceStatus) => {
+    const updatedMap = { ...attendanceMap, [compositeKey]: status };
+    setAttendanceMap(updatedMap);
+
+    // Check for auto-pause only on drop-offs when clock is running
+    if (status !== "dropped_off" || !activeSince || !currentDriver?.id) return;
+
+    const nextPickup = findNextPickupTime(todayRouteStops, updatedMap);
+    if (!nextPickup) return;
+
+    const gapMs = nextPickup.getTime() - Date.now();
+    if (gapMs <= ONE_HOUR_MS) return;
+
+    try {
+      await fetch("/api/driver/time", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ driver_id: currentDriver.id, action: "pause" }),
+      });
+
+      const resumeAt = new Date(nextPickup.getTime() - ONE_HOUR_MS);
+
+      setClockPaused({
+        resumeAt,
+        nextPickupTime: nextPickup.toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        }),
+      });
+      setActiveSince(null);
+      await loadTimeForToday(currentDriver.id);
+    } catch (err) {
+      console.error("Failed to auto-pause clock:", err);
+    }
   };
 
   // 1) Pre-session screen - login form
@@ -501,6 +647,29 @@ export default function DriverPage() {
           <p className="text-sm font-medium text-rose-300">
             {todayRoutesError}
           </p>
+        )}
+
+        {/* Auto-pause banner */}
+        {clockPaused && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 px-4 py-4 space-y-2">
+            <p className="text-sm font-semibold text-amber-200">
+              Clock paused
+            </p>
+            <p className="text-xs text-amber-100/70">
+              Next pickup at {clockPaused.nextPickupTime}. Clock resumes
+              automatically at{" "}
+              {clockPaused.resumeAt.toLocaleTimeString("en-US", {
+                hour: "numeric",
+                minute: "2-digit",
+                hour12: true,
+              })}
+              .
+            </p>
+            <p className="text-xs text-amber-100/70">
+              Only mark the route as complete after the last student has been
+              dropped off.
+            </p>
+          </div>
         )}
 
         {/* AM Shift Section */}
