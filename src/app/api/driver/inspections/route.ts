@@ -12,6 +12,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const driverId = searchParams.get("driverId");
     const driverName = searchParams.get("driverName");
+    const date = searchParams.get("date");
+    const type = searchParams.get("type");
 
     if (!driverId && !driverName) {
       return NextResponse.json(
@@ -20,21 +22,34 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const ninetyDaysAgo = new Date();
-    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-
     let query = supabaseAdmin
       .from("inspections")
       .select(
         "id,driver_id,driver_name,vehicle_label,inspection_type,shift,submitted_at,inspection_date,overall_status"
       )
-      .gte("submitted_at", ninetyDaysAgo.toISOString())
       .order("submitted_at", { ascending: false });
 
     if (driverId) {
       query = query.eq("driver_id", driverId);
     } else {
       query = query.eq("driver_name", driverName!);
+    }
+
+    if (date) {
+      query = query.eq("inspection_date", date);
+    } else {
+      const ninetyDaysAgo = new Date();
+      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+      query = query.gte("submitted_at", ninetyDaysAgo.toISOString());
+    }
+
+    if (type) {
+      query = query.eq("inspection_type", type);
+    }
+
+    const shift = searchParams.get("shift");
+    if (shift) {
+      query = query.eq("shift", shift);
     }
 
     const { data, error } = await query;

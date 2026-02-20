@@ -96,6 +96,18 @@ export default function DriverPage() {
   // Attendance state
   const [attendanceMap, setAttendanceMap] = useState<Record<string, AttendanceStatus>>({});
 
+  // Per-shift inspection gate
+  type ShiftStatus = {
+    preTripDone: boolean;
+    postTripDone: boolean;
+    checking: boolean;
+  };
+  const [shiftStatus, setShiftStatus] = useState<Record<string, ShiftStatus>>({
+    AM: { preTripDone: false, postTripDone: false, checking: true },
+    PM: { preTripDone: false, postTripDone: false, checking: true },
+  });
+  const [originalRouteCounts, setOriginalRouteCounts] = useState<{ AM: number; PM: number }>({ AM: 0, PM: 0 });
+
   const selectedVehicle = useMemo(
     () => vehicles.find((v) => v.id === selectedVehicleId),
     [vehicles, selectedVehicleId],
@@ -202,8 +214,14 @@ export default function DriverPage() {
         throw new Error(body.error || "Failed to load routes");
       }
       const body = await res.json();
-      setTodayRoutes(body.routes ?? []);
+      const routes: DriverRouteSummary[] = body.routes ?? [];
+      setTodayRoutes(routes);
       setTodayRouteStops(body.stopsMap ?? {});
+
+      // Track original counts per shift for post-trip gating
+      const amCount = routes.filter((r) => r.direction === "AM" || r.direction === "MIDDAY").length;
+      const pmCount = routes.filter((r) => r.direction === "PM").length;
+      setOriginalRouteCounts({ AM: amCount, PM: pmCount });
 
       // Load existing attendance for today
       if (body.attendance) {
@@ -219,11 +237,58 @@ export default function DriverPage() {
     }
   };
 
-  // When session becomes ready, load time and routes
+  // Check per-shift inspection status (pre and post for AM and PM)
+  const checkShiftInspections = async (driverId: string) => {
+    setShiftStatus((prev) => ({
+      AM: { ...prev.AM, checking: true },
+      PM: { ...prev.PM, checking: true },
+    }));
+    try {
+      const today = getTodayDateString();
+      const base = `/api/driver/inspections?driverId=${driverId}&date=${today}`;
+      const [amPre, amPost, pmPre, pmPost] = await Promise.all([
+        fetch(`${base}&type=pre&shift=AM`).then((r) => r.ok ? r.json() : { inspections: [] }),
+        fetch(`${base}&type=post&shift=AM`).then((r) => r.ok ? r.json() : { inspections: [] }),
+        fetch(`${base}&type=pre&shift=PM`).then((r) => r.ok ? r.json() : { inspections: [] }),
+        fetch(`${base}&type=post&shift=PM`).then((r) => r.ok ? r.json() : { inspections: [] }),
+      ]);
+      setShiftStatus({
+        AM: {
+          preTripDone: (amPre.inspections ?? []).length > 0,
+          postTripDone: (amPost.inspections ?? []).length > 0,
+          checking: false,
+        },
+        PM: {
+          preTripDone: (pmPre.inspections ?? []).length > 0,
+          postTripDone: (pmPost.inspections ?? []).length > 0,
+          checking: false,
+        },
+      });
+    } catch {
+      setShiftStatus({
+        AM: { preTripDone: false, postTripDone: false, checking: false },
+        PM: { preTripDone: false, postTripDone: false, checking: false },
+      });
+    }
+  };
+
+  // When session becomes ready, load time, routes, and check shift inspections
   useEffect(() => {
     if (!isSessionReady || !currentDriver?.id) return;
     loadTimeForToday(currentDriver.id);
     loadTodayRoutes(currentDriver.id);
+    checkShiftInspections(currentDriver.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSessionReady, currentDriver?.id]);
+
+  // Re-check shift inspections when the page regains focus (e.g. returning from pre-trip/post-trip page)
+  useEffect(() => {
+    if (!isSessionReady || !currentDriver?.id) return;
+    const onFocus = () => {
+      checkShiftInspections(currentDriver.id);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSessionReady, currentDriver?.id]);
 
@@ -342,86 +407,49 @@ export default function DriverPage() {
   return (
     <div className="space-y-5">
       {/* Header with live clock */}
-      <section className="card flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="space-y-1">
-          <h1 className="mb-1 text-lg font-semibold md:text-xl">
-            Driver Portal
-          </h1>
-          <p className="text-sm text-slate-200/80">
-            Signed in as{" "}
-            <span className="font-semibold text-emerald-200">
-              {driverName.trim()}
-            </span>
-          </p>
-          <p className="text-xs text-slate-300">
-            License #: {currentDriver?.license_number ?? "N/A"}
-          </p>
-          {selectedVehicle ? (
-            <>
-              <p className="mt-1 text-sm font-semibold text-emerald-200">
-                Vehicle ID: {selectedVehicle.label}
-              </p>
-              <p className="text-xs font-medium text-slate-100">
-                Plate: {selectedVehicle.plate || "N/A"}
-              </p>
-              {vehicleMainLine && (
-                <p className="text-[11px] text-slate-400">
-                  Year/Make/Model: {vehicleMainLine}
-                </p>
-              )}
-            </>
-          ) : (
-            <p className="mt-1 text-sm font-medium text-slate-100">
-              Vehicle: {vehicleMainLine}
-            </p>
-          )}
-        </div>
+      <section className="card space-y-3">
+        <h1 className="text-base font-semibold uppercase tracking-[0.16em] text-slate-200">
+          Driver Portal
+        </h1>
 
-        <div className="flex w-full flex-col gap-2 md:w-auto md:items-end">
-          <div className="w-full rounded-2xl bg-slate-900 px-3 py-2 text-center md:text-right ring-1 ring-emerald-500/60">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <p className="text-base font-semibold text-emerald-200 sm:text-lg">
+              {driverName.trim()}
+              <span className="ml-2 text-sm font-normal text-slate-300">
+                Lic #{currentDriver?.license_number ?? "N/A"}
+              </span>
+            </p>
+            {selectedVehicle ? (
+              <div className="space-y-0.5 text-sm sm:text-base">
+                <p className="text-slate-100">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Bus </span>
+                  <span className="font-semibold">{selectedVehicle.label}</span>
+                  <span className="mx-1.5 text-slate-500">&middot;</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Plate </span>
+                  <span>{selectedVehicle.plate || "N/A"}</span>
+                </p>
+                {vehicleMainLine && (
+                  <p className="text-slate-300">
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Vehicle </span>
+                    {vehicleMainLine}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-100">{vehicleMainLine}</p>
+            )}
+          </div>
+
+          <div className="shrink-0 rounded-2xl bg-slate-900 px-4 py-3 text-center ring-1 ring-emerald-500/60">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300">
               Today&apos;s hours
             </p>
-            <p className="font-mono text-lg font-semibold text-emerald-300">
+            <p className="font-mono text-xl font-semibold text-emerald-300 sm:text-2xl">
               {formatDuration(displaySeconds)}
             </p>
           </div>
         </div>
-      </section>
-
-      {/* Pre / Post selection */}
-      <section className="card space-y-3">
-        <div className="space-y-1">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-            Inspections
-          </p>
-          <p className="text-sm text-slate-200/90">
-            Choose <span className="font-semibold">Pre Trip</span> to start
-            your shift, and{" "}
-            <span className="font-semibold">Post Trip</span> to close it out.
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <Link
-            href="/driver/pre-trip"
-            className="block w-full rounded-2xl bg-emerald-600 px-4 py-3 text-center text-sm font-semibold text-slate-950 shadow-md ring-1 ring-emerald-400/70 hover:bg-emerald-500 hover:ring-emerald-300 active:scale-[0.97] sm:text-base"
-          >
-            Pre Trip Inspection
-          </Link>
-
-          <Link
-            href="/driver/post-trip"
-            className="block w-full rounded-2xl bg-slate-800 px-4 py-3 text-center text-sm font-semibold text-slate-50 shadow-md ring-1 ring-slate-500/70 hover:bg-slate-700 hover:ring-slate-400 active:scale-[0.97] sm:text-base"
-          >
-            Post Trip Inspection
-          </Link>
-        </div>
-
-        <p className="text-[11px] leading-snug text-slate-400">
-          Tapping a tab will open the full checklist on its own page. Your time
-          clock remains linked to your inspections as before.
-        </p>
       </section>
 
       {/* Quick nav */}
@@ -448,15 +476,20 @@ export default function DriverPage() {
         </nav>
       </section>
 
-      {/* Today's routes */}
+      {/* Today's routes — per-shift gating */}
       <section className="card space-y-4">
         <div className="flex items-center justify-between gap-2">
           <div>
             <h2 className="text-base font-semibold uppercase tracking-[0.16em] text-slate-200">
-              Today&apos;s routes
+              {new Date().toLocaleDateString("en-US", {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
+                year: "numeric",
+              })}
             </h2>
             <p className="text-xs text-slate-300">
-              Based on your weekly route assignments for today.
+              Your route assignments for today.
             </p>
           </div>
           {todayRoutesLoading && (
@@ -470,30 +503,203 @@ export default function DriverPage() {
           </p>
         )}
 
-        {!todayRoutesLoading &&
-          !todayRoutesError &&
-          todayRoutes.length === 0 && (
-            <p className="text-sm text-slate-200">
-              You have no active routes assigned for today.
-            </p>
-          )}
+        {/* AM Shift Section */}
+        {(() => {
+          const amRoutes = todayRoutes.filter(
+            (r) => r.direction === "AM" || r.direction === "MIDDAY"
+          );
+          const status = shiftStatus.AM;
+          const allAmDone = originalRouteCounts.AM > 0 && amRoutes.length === 0;
 
-        {todayRoutes.length > 0 && (
-          <div className="space-y-4">
-            {todayRoutes.map((route) => (
-              <RouteCard
-                key={route.id}
-                route={route}
-                stops={todayRouteStops[route.id] || []}
-                driverId={currentDriver?.id ?? ""}
-                completingRouteId={completingRouteId}
-                onMarkComplete={handleMarkRouteComplete}
-                onAttendanceChange={handleAttendanceChange}
-                attendanceMap={attendanceMap}
-              />
-            ))}
-          </div>
-        )}
+          return (
+            <div className="space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                AM Shift
+              </h3>
+
+              {status.checking && (
+                <p className="text-xs text-slate-400">Checking AM status...</p>
+              )}
+
+              {/* Gate: AM pre-trip needed */}
+              {!status.checking && !status.preTripDone && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 px-4 py-4 text-center space-y-3">
+                  <p className="text-sm font-semibold text-amber-200">
+                    Complete your AM Pre-Trip Inspection
+                  </p>
+                  <p className="text-xs text-amber-100/70">
+                    Submit your AM pre-trip inspection to unlock your morning routes.
+                  </p>
+                  <Link
+                    href="/driver/pre-trip?shift=AM"
+                    className="inline-block rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-slate-950 shadow-md ring-1 ring-emerald-400/70 hover:bg-emerald-500 active:scale-[0.97]"
+                  >
+                    Start AM Pre-Trip
+                  </Link>
+                </div>
+              )}
+
+              {/* AM routes visible after pre-trip */}
+              {!status.checking && status.preTripDone && !allAmDone && (
+                <>
+                  {amRoutes.length === 0 && !todayRoutesLoading && (
+                    <p className="text-sm text-slate-200">
+                      No AM routes assigned for today.
+                    </p>
+                  )}
+                  {amRoutes.length > 0 && (
+                    <div className="space-y-4">
+                      {amRoutes.map((route) => (
+                        <RouteCard
+                          key={route.id}
+                          route={route}
+                          stops={todayRouteStops[route.id] || []}
+                          driverId={currentDriver?.id ?? ""}
+                          completingRouteId={completingRouteId}
+                          onMarkComplete={handleMarkRouteComplete}
+                          onAttendanceChange={handleAttendanceChange}
+                          attendanceMap={attendanceMap}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Gate: AM post-trip needed */}
+              {!status.checking && status.preTripDone && allAmDone && !status.postTripDone && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 px-4 py-4 text-center space-y-3">
+                  <p className="text-sm font-semibold text-amber-200">
+                    Submit your AM Post-Trip Inspection
+                  </p>
+                  <p className="text-xs text-amber-100/70">
+                    All AM routes are complete. Please submit your AM post-trip inspection.
+                  </p>
+                  <Link
+                    href="/driver/post-trip?shift=AM"
+                    className="inline-block rounded-xl bg-slate-700 px-6 py-2.5 text-sm font-semibold text-slate-50 shadow-md ring-1 ring-slate-500/70 hover:bg-slate-600 active:scale-[0.97]"
+                  >
+                    Start AM Post-Trip
+                  </Link>
+                </div>
+              )}
+
+              {/* AM shift complete */}
+              {!status.checking && status.postTripDone && (
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/30 px-4 py-3 text-center">
+                  <p className="text-sm font-semibold text-emerald-300">
+                    AM shift complete
+                  </p>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* PM Shift Section */}
+        {(() => {
+          const pmRoutes = todayRoutes.filter((r) => r.direction === "PM");
+          const status = shiftStatus.PM;
+          const amStatus = shiftStatus.AM;
+          const allPmDone = originalRouteCounts.PM > 0 && pmRoutes.length === 0;
+          const amShiftComplete = amStatus.preTripDone && amStatus.postTripDone;
+
+          return (
+            <div className="space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                PM Shift
+              </h3>
+
+              {status.checking && (
+                <p className="text-xs text-slate-400">Checking PM status...</p>
+              )}
+
+              {/* Gate: AM shift must be complete before PM pre-trip */}
+              {!status.checking && !status.preTripDone && !amShiftComplete && (
+                <div className="rounded-xl border border-slate-500/30 bg-slate-900/40 px-4 py-4 text-center space-y-2">
+                  <p className="text-sm font-semibold text-slate-300">
+                    PM shift locked
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Complete your AM pre-trip and post-trip inspections before starting your PM shift.
+                  </p>
+                </div>
+              )}
+
+              {/* Gate: PM pre-trip needed (AM shift is done) */}
+              {!status.checking && !status.preTripDone && amShiftComplete && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 px-4 py-4 text-center space-y-3">
+                  <p className="text-sm font-semibold text-amber-200">
+                    Complete your PM Pre-Trip Inspection
+                  </p>
+                  <p className="text-xs text-amber-100/70">
+                    Submit your PM pre-trip inspection to unlock your afternoon routes.
+                  </p>
+                  <Link
+                    href="/driver/pre-trip?shift=PM"
+                    className="inline-block rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-slate-950 shadow-md ring-1 ring-emerald-400/70 hover:bg-emerald-500 active:scale-[0.97]"
+                  >
+                    Start PM Pre-Trip
+                  </Link>
+                </div>
+              )}
+
+              {/* PM routes visible after pre-trip */}
+              {!status.checking && status.preTripDone && !allPmDone && (
+                <>
+                  {pmRoutes.length === 0 && !todayRoutesLoading && (
+                    <p className="text-sm text-slate-200">
+                      No PM routes assigned for today.
+                    </p>
+                  )}
+                  {pmRoutes.length > 0 && (
+                    <div className="space-y-4">
+                      {pmRoutes.map((route) => (
+                        <RouteCard
+                          key={route.id}
+                          route={route}
+                          stops={todayRouteStops[route.id] || []}
+                          driverId={currentDriver?.id ?? ""}
+                          completingRouteId={completingRouteId}
+                          onMarkComplete={handleMarkRouteComplete}
+                          onAttendanceChange={handleAttendanceChange}
+                          attendanceMap={attendanceMap}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Gate: PM post-trip needed */}
+              {!status.checking && status.preTripDone && allPmDone && !status.postTripDone && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 px-4 py-4 text-center space-y-3">
+                  <p className="text-sm font-semibold text-amber-200">
+                    Submit your PM Post-Trip Inspection
+                  </p>
+                  <p className="text-xs text-amber-100/70">
+                    All PM routes are complete. Please submit your PM post-trip inspection.
+                  </p>
+                  <Link
+                    href="/driver/post-trip?shift=PM"
+                    className="inline-block rounded-xl bg-slate-700 px-6 py-2.5 text-sm font-semibold text-slate-50 shadow-md ring-1 ring-slate-500/70 hover:bg-slate-600 active:scale-[0.97]"
+                  >
+                    Start PM Post-Trip
+                  </Link>
+                </div>
+              )}
+
+              {/* PM shift complete */}
+              {!status.checking && status.postTripDone && (
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/30 px-4 py-3 text-center">
+                  <p className="text-sm font-semibold text-emerald-300">
+                    PM shift complete
+                  </p>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </section>
 
       {error && (
@@ -509,30 +715,6 @@ export default function DriverPage() {
           </p>
         </section>
       )}
-
-      {/* Inspections info */}
-      <section className="card space-y-2">
-        <h2 className="text-sm font-semibold text-slate-50">
-          Daily inspections
-        </h2>
-        <p className="text-sm text-slate-300">
-          Use the{" "}
-          <span className="font-semibold text-emerald-300">
-            Pre Trip Inspection
-          </span>{" "}
-          and{" "}
-          <span className="font-semibold text-slate-200">
-            Post Trip Inspection
-          </span>{" "}
-          buttons above to complete your daily checks. Your time clock will
-          still start after a completed pre-trip and stop after a completed
-          post-trip.
-        </p>
-        <p className="text-[11px] text-slate-400">
-          If something looks wrong or you have trouble submitting an inspection,
-          contact the Transafe office.
-        </p>
-      </section>
 
       {/* Sign-out footer */}
       <section className="mt-2 border-t border-slate-800 pt-3 text-[11px] text-slate-500">

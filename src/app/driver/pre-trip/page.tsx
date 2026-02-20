@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 // ==== TYPES & CONSTANTS SHARED WITH DRIVER PORTAL ====
 
@@ -240,8 +240,23 @@ function AnswerButton({
   );
 }
 
-export default function PreTripPage() {
+export default function PreTripPageWrapper() {
+  return (
+    <Suspense fallback={
+      <div className="mx-auto max-w-md space-y-4">
+        <section className="card">
+          <p className="text-sm text-slate-200/80">Loading your pre-trip inspection…</p>
+        </section>
+      </div>
+    }>
+      <PreTripPage />
+    </Suspense>
+  );
+}
+
+function PreTripPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   // Session & vehicle
   const [session, setSession] = useState<DriverSession | null>(null);
@@ -251,6 +266,7 @@ export default function PreTripPage() {
   // Form state
   const [odometer, setOdometer] = useState("");
   const [shift, setShift] = useState<ShiftType>("");
+  const [shiftLocked, setShiftLocked] = useState(false);
   const [answers, setAnswers] = useState<AnswersState>({});
   const [notes, setNotes] = useState("");
   const [signatureName, setSignatureName] = useState("");
@@ -279,6 +295,15 @@ export default function PreTripPage() {
       router.push("/driver");
     }
   }, [router]);
+
+  // Auto-set shift from URL param (e.g. ?shift=AM)
+  useEffect(() => {
+    const shiftParam = searchParams.get("shift");
+    if (shiftParam && ["AM", "Midday", "PM"].includes(shiftParam)) {
+      setShift(shiftParam as ShiftType);
+      setShiftLocked(true);
+    }
+  }, [searchParams]);
 
   // Load vehicle info for display and for inspections table
   useEffect(() => {
@@ -531,18 +556,21 @@ export default function PreTripPage() {
         {/* Shift selector */}
         <div className="space-y-2">
           <label className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">
-            Shift
+            Shift{shiftLocked && " (set from route)"}
           </label>
           <div className="flex gap-2">
             {(["AM", "Midday", "PM"] as ShiftType[]).map((s) => (
               <button
                 key={s}
                 type="button"
-                onClick={() => setShift(s)}
+                onClick={() => !shiftLocked && setShift(s)}
+                disabled={shiftLocked}
                 className={`flex-1 rounded-xl px-3 py-2 text-xs font-semibold transition active:scale-[0.96] ${
                   shift === s
                     ? "bg-emerald-600 text-white"
-                    : "bg-slate-900 text-slate-100 ring-1 ring-white/10 hover:bg-slate-800"
+                    : shiftLocked
+                      ? "bg-slate-900/50 text-slate-500 ring-1 ring-white/5 cursor-not-allowed"
+                      : "bg-slate-900 text-slate-100 ring-1 ring-white/10 hover:bg-slate-800"
                 }`}
               >
                 {s}
