@@ -320,9 +320,10 @@ export async function GET(req: NextRequest) {
     for (const rec of attendanceData || []) {
       if (rec.route_stop_id) {
         attendance[`${rec.student_id}:${rec.route_stop_id}`] = rec.status;
+      } else {
+        // Legacy records without route_stop_id — use bare student_id
+        attendance[rec.student_id] = rec.status;
       }
-      // Also store by student_id alone as fallback
-      attendance[rec.student_id] = rec.status;
     }
 
     // 10. Return

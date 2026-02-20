@@ -68,15 +68,18 @@ function getTodayDateString() {
 }
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
+const AM_POSTTIP_DEADLINE_MS = 45 * 60 * 1000;
 
 function findNextPickupTime(
   stopsMap: Record<string, RouteStopForDriver[]>,
   attendanceState: Record<string, AttendanceStatus>,
+  routeIds?: Set<string>,
 ): Date | null {
   const now = new Date();
   let earliest: Date | null = null;
 
-  for (const stops of Object.values(stopsMap)) {
+  for (const [routeId, stops] of Object.entries(stopsMap)) {
+    if (routeIds && !routeIds.has(routeId)) continue;
     for (const stop of stops) {
       if (stop.stop_type !== "pickup_home" && stop.stop_type !== "pickup_school") continue;
       if (!stop.planned_time) continue;
@@ -92,7 +95,7 @@ function findNextPickupTime(
 
       const allConfirmed = studentIds.every((sid) => {
         const compositeKey = `${sid}:${stop.id}`;
-        return attendanceState[compositeKey] || attendanceState[sid];
+        return !!attendanceState[compositeKey];
       });
 
       if (allConfirmed) continue;
@@ -110,6 +113,44 @@ function findNextPickupTime(
   }
 
   return earliest;
+}
+
+function areAllShiftStudentsConfirmed(
+  shift: "AM" | "PM",
+  routes: DriverRouteSummary[],
+  stopsMap: Record<string, RouteStopForDriver[]>,
+  attendance: Record<string, AttendanceStatus>,
+): boolean {
+  const shiftRoutes = routes.filter((r) =>
+    shift === "AM"
+      ? r.direction === "AM" || r.direction === "MIDDAY"
+      : r.direction === "PM"
+  );
+
+  if (shiftRoutes.length === 0) return false;
+
+  let hasStudents = false;
+  for (const route of shiftRoutes) {
+    const stops = stopsMap[route.id] || [];
+    for (const stop of stops) {
+      const studentIds =
+        stop.household_student_ids.length > 0
+          ? stop.household_student_ids
+          : stop.student_id
+            ? [stop.student_id]
+            : [];
+
+      for (const sid of studentIds) {
+        hasStudents = true;
+        const compositeKey = `${sid}:${stop.id}`;
+        if (!attendance[compositeKey]) {
+          return false;
+        }
+      }
+    }
+  }
+
+  return hasStudents;
 }
 
 export default function DriverPage() {
@@ -130,11 +171,12 @@ export default function DriverPage() {
   const [displaySeconds, setDisplaySeconds] = useState(0);
 
   // Auto-pause state
-  const [clockPaused, setClockPaused] = useState<{
-    resumeAt: Date;
-    nextPickupTime: string;
-  } | null>(null);
+  type ClockPauseState =
+    | { reason: "pm_gap"; resumeAt: Date; nextPickupTime: string }
+    | { reason: "am_posttip" };
+  const [clockPaused, setClockPaused] = useState<ClockPauseState | null>(null);
   const pauseCheckedRef = useRef(false);
+  const [amLastDropOffTime, setAmLastDropOffTime] = useState<Date | null>(null);
 
   // Today's routes state
   const [todayRoutesLoading, setTodayRoutesLoading] = useState(false);
@@ -363,9 +405,9 @@ export default function DriverPage() {
     return () => clearInterval(id);
   }, [activeSince, clockBaseSeconds]);
 
-  // Auto-resume timer
+  // PM gap: auto-resume timer
   useEffect(() => {
-    if (!clockPaused || !currentDriver?.id) return;
+    if (!clockPaused || clockPaused.reason !== "pm_gap" || !currentDriver?.id) return;
 
     const doResume = async () => {
       try {
@@ -393,24 +435,97 @@ export default function DriverPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clockPaused, currentDriver?.id]);
 
+  // AM post-trip deadline: pause 45min after last AM drop-off if post-trip not submitted
+  useEffect(() => {
+    if (!amLastDropOffTime || !currentDriver?.id) return;
+    if (shiftStatus.AM.postTripDone) return;
+    if (clockPaused) return;
+
+    const doPause = async () => {
+      try {
+        await fetch("/api/driver/time", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ driver_id: currentDriver.id, action: "pause" }),
+        });
+        setClockPaused({ reason: "am_posttip" });
+        setActiveSince(null);
+        await loadTimeForToday(currentDriver.id);
+      } catch (err) {
+        console.error("Failed to auto-pause clock (AM post-trip deadline):", err);
+      }
+    };
+
+    const deadline = amLastDropOffTime.getTime() + AM_POSTTIP_DEADLINE_MS;
+    const msUntilDeadline = deadline - Date.now();
+
+    if (msUntilDeadline <= 0) {
+      doPause();
+      return;
+    }
+
+    const timer = setTimeout(doPause, msUntilDeadline);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amLastDropOffTime, shiftStatus.AM.postTripDone, clockPaused, currentDriver?.id]);
+
+  // AM post-trip submitted: resume clock if paused for AM reason
+  useEffect(() => {
+    if (!clockPaused || clockPaused.reason !== "am_posttip") return;
+    if (!shiftStatus.AM.postTripDone) return;
+    if (!currentDriver?.id) return;
+
+    const doResume = async () => {
+      try {
+        await fetch("/api/driver/time", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ driver_id: currentDriver.id, action: "resume" }),
+        });
+        await loadTimeForToday(currentDriver.id);
+        setClockPaused(null);
+      } catch (err) {
+        console.error("Failed to resume clock after AM post-trip:", err);
+      }
+    };
+
+    doResume();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clockPaused, shiftStatus.AM.postTripDone, currentDriver?.id]);
+
   // Restore pause state after page load / refresh
   useEffect(() => {
     if (!isSessionReady || !currentDriver?.id) return;
     if (todayRoutesLoading) return;
+    if (shiftStatus.AM.checking || shiftStatus.PM.checking) return;
     if (pauseCheckedRef.current) return;
 
     pauseCheckedRef.current = true;
 
     if (activeSince !== null) return;
     if (clockBaseSeconds === 0) return;
-    if (todayRoutes.length === 0) return;
 
-    const nextPickup = findNextPickupTime(todayRouteStops, attendanceMap);
+    // AM: all AM students confirmed but post-trip not submitted
+    if (
+      !shiftStatus.AM.postTripDone &&
+      areAllShiftStudentsConfirmed("AM", todayRoutes, todayRouteStops, attendanceMap)
+    ) {
+      setClockPaused({ reason: "am_posttip" });
+      return;
+    }
+
+    // PM: future PM pickup with gap
+    if (todayRoutes.length === 0) return;
+    const pmRouteIds = new Set(
+      todayRoutes.filter((r) => r.direction === "PM").map((r) => r.id)
+    );
+    const nextPickup = findNextPickupTime(todayRouteStops, attendanceMap, pmRouteIds);
     if (!nextPickup) return;
 
     const resumeAt = new Date(Math.max(nextPickup.getTime() - ONE_HOUR_MS, Date.now()));
 
     setClockPaused({
+      reason: "pm_gap",
       resumeAt,
       nextPickupTime: nextPickup.toLocaleTimeString("en-US", {
         hour: "numeric",
@@ -419,7 +534,7 @@ export default function DriverPage() {
       }),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSessionReady, currentDriver?.id, todayRoutesLoading, activeSince, clockBaseSeconds, todayRoutes, todayRouteStops, attendanceMap]);
+  }, [isSessionReady, currentDriver?.id, todayRoutesLoading, activeSince, clockBaseSeconds, todayRoutes, todayRouteStops, attendanceMap, shiftStatus]);
 
   // Login handler
   const handleLoginSuccess = (
@@ -445,6 +560,7 @@ export default function DriverPage() {
     setActiveSince(null);
     setDisplaySeconds(0);
     setClockPaused(null);
+    setAmLastDropOffTime(null);
     pauseCheckedRef.current = false;
     setAttendanceMap({});
 
@@ -505,36 +621,62 @@ export default function DriverPage() {
     const updatedMap = { ...attendanceMap, [compositeKey]: status };
     setAttendanceMap(updatedMap);
 
-    // Check for auto-pause only on drop-offs when clock is running
+    // Only check auto-pause on drop-offs when clock is running
     if (status !== "dropped_off" || !activeSince || !currentDriver?.id) return;
 
-    const nextPickup = findNextPickupTime(todayRouteStops, updatedMap);
-    if (!nextPickup) return;
+    // Determine which shift this drop-off belongs to
+    const stopId = compositeKey.split(":")[1];
+    let dropOffShift: "AM" | "PM" | null = null;
+    for (const route of todayRoutes) {
+      const stops = todayRouteStops[route.id] || [];
+      if (stops.some((s) => s.id === stopId)) {
+        dropOffShift = route.direction === "PM" ? "PM" : "AM";
+        break;
+      }
+    }
 
-    const gapMs = nextPickup.getTime() - Date.now();
-    if (gapMs <= ONE_HOUR_MS) return;
+    // AM: when all AM students are confirmed, start post-trip deadline
+    if (dropOffShift === "AM") {
+      if (areAllShiftStudentsConfirmed("AM", todayRoutes, todayRouteStops, updatedMap)) {
+        setAmLastDropOffTime((prev) => prev ?? new Date());
+      }
+      return;
+    }
 
-    try {
-      await fetch("/api/driver/time", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ driver_id: currentDriver.id, action: "pause" }),
-      });
+    // PM: check for gap to next PM pickup
+    if (dropOffShift === "PM") {
+      const pmRouteIds = new Set(
+        todayRoutes.filter((r) => r.direction === "PM").map((r) => r.id)
+      );
+      const nextPickup = findNextPickupTime(todayRouteStops, updatedMap, pmRouteIds);
+      if (!nextPickup) return;
 
-      const resumeAt = new Date(nextPickup.getTime() - ONE_HOUR_MS);
+      const gapMs = nextPickup.getTime() - Date.now();
+      if (gapMs <= ONE_HOUR_MS) return;
 
-      setClockPaused({
-        resumeAt,
-        nextPickupTime: nextPickup.toLocaleTimeString("en-US", {
-          hour: "numeric",
-          minute: "2-digit",
-          hour12: true,
-        }),
-      });
-      setActiveSince(null);
-      await loadTimeForToday(currentDriver.id);
-    } catch (err) {
-      console.error("Failed to auto-pause clock:", err);
+      try {
+        await fetch("/api/driver/time", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ driver_id: currentDriver.id, action: "pause" }),
+        });
+
+        const resumeAt = new Date(nextPickup.getTime() - ONE_HOUR_MS);
+
+        setClockPaused({
+          reason: "pm_gap",
+          resumeAt,
+          nextPickupTime: nextPickup.toLocaleTimeString("en-US", {
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          }),
+        });
+        setActiveSince(null);
+        await loadTimeForToday(currentDriver.id);
+      } catch (err) {
+        console.error("Failed to auto-pause clock:", err);
+      }
     }
   };
 
@@ -649,8 +791,8 @@ export default function DriverPage() {
           </p>
         )}
 
-        {/* Auto-pause banner */}
-        {clockPaused && (
+        {/* Auto-pause banner: PM gap */}
+        {clockPaused && clockPaused.reason === "pm_gap" && (
           <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 px-4 py-4 space-y-2">
             <p className="text-sm font-semibold text-amber-200">
               Clock paused
@@ -669,6 +811,24 @@ export default function DriverPage() {
               Only mark the route as complete after the last student has been
               dropped off.
             </p>
+          </div>
+        )}
+
+        {/* Auto-pause banner: AM post-trip deadline */}
+        {clockPaused && clockPaused.reason === "am_posttip" && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 px-4 py-4 space-y-3">
+            <p className="text-sm font-semibold text-amber-200">
+              Clock paused
+            </p>
+            <p className="text-xs text-amber-100/70">
+              Submit your AM Post-Trip Inspection to resume the clock.
+            </p>
+            <Link
+              href="/driver/post-trip?shift=AM"
+              className="inline-block rounded-xl bg-slate-700 px-6 py-2.5 text-sm font-semibold text-slate-50 shadow-md ring-1 ring-slate-500/70 hover:bg-slate-600 active:scale-[0.97]"
+            >
+              Start AM Post-Trip
+            </Link>
           </div>
         )}
 

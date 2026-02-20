@@ -24,8 +24,8 @@ export async function POST(req: NextRequest) {
 
     const today = new Date().toISOString().slice(0, 10);
 
-    // Delete existing record for this student at this specific stop only
-    // This preserves pickup records when recording dropoffs (and vice versa)
+    // Delete existing record for this student at this specific stop
+    // (handles status changes at the same stop, e.g. picked_up → absent)
     let deleteQuery = supabaseAdmin
       .from("attendance_records")
       .delete()
@@ -38,6 +38,17 @@ export async function POST(req: NextRequest) {
     }
 
     await deleteQuery;
+
+    // Also delete any record with the same status across all stops
+    // (prevents unique constraint violation on idx_attendance_unique
+    //  which spans student_id, route_id, record_date, status)
+    await supabaseAdmin
+      .from("attendance_records")
+      .delete()
+      .eq("student_id", student_id)
+      .eq("route_id", route_id)
+      .eq("record_date", today)
+      .eq("status", status);
 
     // Insert new record
     const { data, error } = await supabaseAdmin
